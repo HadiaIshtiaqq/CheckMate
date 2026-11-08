@@ -26,6 +26,14 @@ export default function WorkflowPage({ params }: { params: { id: string } }) {
   const [toast, setToast] = useState<Toast | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const handledReturn = useRef(false);
+  const lastState = useRef<string | null>(null);
+  useEffect(() => {
+    if (!wf) return;
+    if (lastState.current && lastState.current !== wf.state && !RUNNING.has(wf.state)) {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+    lastState.current = wf.state;
+  }, [wf]);
 
   const load = useCallback(async () => {
     try {
@@ -163,7 +171,7 @@ export default function WorkflowPage({ params }: { params: { id: string } }) {
 
       <Stepper state={wf.state} />
 
-      <NextStep wf={wf} lastMessage={lastMessage} busy={busy} actions={{
+      <NextStep wf={wf} lastMessage={lastMessage} events={events} busy={busy} actions={{
         approve, pay: startPayPal,
         verify: () => document.getElementById("verify")?.scrollIntoView({ behavior: "smooth" }),
         retry: () => act(() => post(`/api/v1/workflows/${id}/retry`)),
@@ -188,8 +196,14 @@ export default function WorkflowPage({ params }: { params: { id: string } }) {
                         act(() => post(`/api/v1/workflows/${id}/alternatives/${pid}/select${broken.length ? "?override=true" : ""}`),
                             "Plan updated to the offer you chose. Review and approve it.");
                       }} />
+          {!wf.evaluations.length && RUNNING.has(wf.state) && (
+            <div className="space-y-3" aria-hidden="true">
+              {[0, 1, 2].map((i) => <div key={i} className="card h-28 animate-pulse bg-white/60" />)}
+            </div>
+          )}
+          <AgentTimeline events={events} runs={wf.agent_runs} chainOk={chainOk} />
         </div>
-        <div className="space-y-5">
+        <div className="space-y-5 lg:sticky lg:top-24 lg:max-h-[calc(100vh-7rem)] lg:self-start lg:overflow-y-auto lg:pb-2 lg:pr-1">
           {contract && (
             <ContractCard contract={contract} state={wf.state} busy={busy} onApprove={approve}
                           onRevoke={() => act(() => post(`/api/v1/contracts/${contract.id}/revoke`), "Approval revoked. No payment can proceed.")} />
@@ -212,7 +226,6 @@ export default function WorkflowPage({ params }: { params: { id: string } }) {
             <PaymentCard wf={wf} payment={payment} busy={busy} onPay={startPayPal}
                          onCapture={(pid) => act(() => post(`/api/v1/payments/${pid}/capture`), "Payment captured.")} />
           )}
-          <AgentTimeline events={events} runs={wf.agent_runs} chainOk={chainOk} />
         </div>
       </div>
 

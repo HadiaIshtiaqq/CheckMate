@@ -110,7 +110,7 @@ function Banner({ tone, icon, title, children }: { tone: "indigo" | "amber" | "r
   );
 }
 
-export function NextStep({ wf, lastMessage, busy, actions }: { wf: Workflow; lastMessage?: string; busy: boolean; actions: Actions }) {
+export function NextStep({ wf, lastMessage, events, busy, actions }: { wf: Workflow; lastMessage?: string; events?: WfEvent[]; busy: boolean; actions: Actions }) {
   const [clar, setClar] = useState("");
   const c = wf.contract;
   const v = wf.verification;
@@ -133,10 +133,29 @@ export function NextStep({ wf, lastMessage, busy, actions }: { wf: Workflow; las
   }
 
   if (RUNNING.has(wf.state)) {
+    const seen = new Set((events ?? []).map((e) => e.type));
+    const steps = [
+      { label: "Understanding your request", done: seen.has("intent.parsed") },
+      { label: "Searching stores", done: seen.has("product.discovered") },
+      { label: "Checking sellers, terms and prices", done: seen.has("evaluation.completed") },
+      { label: "Building your purchase plan", done: seen.has("contract.created") },
+    ];
+    const current = steps.findIndex((s) => !s.done);
+    const pipeline = ["CREATED", "INTENT_PARSED", "DISCOVERING", "EVALUATING"].includes(wf.state);
     return (
-      <Banner tone="sky" icon={<Loader size={22} />} title={wf.state === "RECONCILIATION" ? "Reconciling your payment…" :
+      <Banner tone="sky" icon={<Loader size={22} />} title={wf.state === "RECONCILIATION" ? "Reconciling your purchase…" :
         wf.state === "CHECKOUT_VERIFICATION" ? "Checking the final checkout…" : "Your agents are on it…"}>
-        <p>{lastMessage ?? "Starting up."}</p>
+        {pipeline ? (
+          <ol className="mt-2 grid gap-2 sm:grid-cols-4">
+            {steps.map((s, i) => (
+              <li key={s.label} className={`flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold ring-1 ring-inset ${s.done ? "bg-emerald-50 text-emerald-700 ring-emerald-600/20 dark:bg-emerald-950/40" : i === current ? "bg-white text-sky-700 ring-sky-300 dark:bg-slate-900" : "bg-white/50 text-slate-400 ring-slate-200 dark:bg-slate-900/40 dark:ring-slate-800"}`}>
+                {s.done ? <Check size={14} strokeWidth={3} /> : i === current ? <Loader size={14} /> : <Clock size={14} />}
+                {s.label}
+              </li>
+            ))}
+          </ol>
+        ) : null}
+        <p className="mt-2 text-xs text-slate-500">{lastMessage ?? "Starting up."}</p>
       </Banner>
     );
   }
@@ -313,6 +332,19 @@ export function NextStep({ wf, lastMessage, busy, actions }: { wf: Workflow; las
       );
 
     case "COMPLETED":
+      if (c?.terms.purchase_channel === "external_store") {
+        return wf.has_discrepancy ? (
+          <Banner tone="amber" icon={<Alert size={22} />} title="Purchase recorded — but it doesn't match your plan">
+            <p>What you reported differs from the plan you approved (see the passport for exactly what). It's recorded so you can raise it with {c.terms.store_name}.</p>
+            {wf.passport_id && <div className="mt-3"><Link className="btn-primary" href={`/passports/${wf.passport_id}`}><Award size={16} /> Open passport</Link></div>}
+          </Banner>
+        ) : (
+          <Banner tone="emerald" icon={<Award size={22} />} title="Purchase recorded and reconciled">
+            <p>Your approved plan, what you confirmed at {c.terms.store_name} and the amount you paid all agree.</p>
+            {wf.passport_id && <div className="mt-3"><Link className="btn-primary" href={`/passports/${wf.passport_id}`}><Award size={16} /> View Purchase Truth Passport</Link></div>}
+          </Banner>
+        );
+      }
       return wf.has_discrepancy ? (
         <Banner tone="amber" icon={<Alert size={22} />} title="Paid — but the merchant's receipt doesn't match">
           <p>PayPal's record is authoritative for what you were charged. The discrepancy is recorded in your Purchase Truth Passport so you can raise it with the merchant.</p>
@@ -385,7 +417,9 @@ export function OfferCards({ evaluations, selectedId, onSelect, busy = false, ca
 }) {
   const [open, setOpen] = useState<string | null>(null);
   const [sort, setSort] = useState<SortKey>("best");
-  const [showFailed, setShowFailed] = useState(true);
+  const [showFailed, setShowFailed] = useState(false);
+  const [limit, setLimit] = useState(8);
+  const [expanded, setExpanded] = useState<string | null>(null);
   if (!evaluations.length) return null;
   const seen = new Set<string>();
   const rank = { PASS: 0, UNKNOWN: 1, FAIL: 2 } as const;
@@ -403,6 +437,18 @@ export function OfferCards({ evaluations, selectedId, onSelect, busy = false, ca
       return rank[a.status] - rank[b.status] || b.candidate.match_score - a.candidate.match_score || price(a) - price(b);
     });
   const passing = unique.filter((r) => r.status === "PASS").length;
+  // Group near-identical listings (same product title) so one product shows once.
+  const norm = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().slice(0, 48);
+  const groups: { e: Evaluation; others: Evaluation[] }[] = [];
+  const byKey = new Map<string, { e: Evaluation; others: Evaluation[] }>();
+  for (const e of rows) {
+    const k = norm(e.candidate.product_name);
+    const g = byKey.get(k);
+    if (g && e.candidate.id !== selectedId) g.others.push(e);
+    else if (!g) { const ng = { e, others: [] as Evaluation[] }; byKey.set(k, ng); groups.push(ng); }
+    else groups.push({ e, others: [] });
+  }
+  const visible = groups.slice(0, limit);
   return (
     <Card id="offers" title="Offers" icon={<Search size={15} />} right={<span className="text-xs text-slate-500">{passing > 0 ? `${passing} of ${plural(unique.length, "offer")} fully verified` : `${unique.length - failedCount} of ${plural(unique.length, "offer")} without a failed rule`}</span>}>
       <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -414,8 +460,8 @@ export function OfferCards({ evaluations, selectedId, onSelect, busy = false, ca
         </div>
         {failedCount > 0 && (
           <label className="ml-auto flex cursor-pointer items-center gap-2 text-xs font-medium text-slate-600 dark:text-slate-300">
-            <input type="checkbox" className="accent-brand-600" checked={showFailed} onChange={(e) => setShowFailed(e.target.checked)} />
-            Show {failedCount} that break a rule
+            <input type="checkbox" className="accent-brand-600" checked={showFailed} onChange={(e) => { setShowFailed(e.target.checked); setLimit(8); }} />
+            Also show {failedCount} that break a rule
           </label>
         )}
       </div>
@@ -423,7 +469,10 @@ export function OfferCards({ evaluations, selectedId, onSelect, busy = false, ca
         <p className="mb-3 text-xs text-slate-500">You can choose any offer. If it breaks one of your rules, you'll be asked to confirm, and the override is recorded in your plan and passport.</p>
       )}
       <div className="grid gap-3">
-        {rows.map((e) => {
+        {visible.length === 0 && (
+          <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500 dark:bg-slate-800/50">Every offer breaks at least one of your rules. Tick “Also show … that break a rule” to see them, or edit your request.</p>
+        )}
+        {visible.map(({ e, others }) => {
           const c = e.candidate;
           const selected = c.id === selectedId;
           const isOpen = open === c.id;
@@ -444,7 +493,7 @@ export function OfferCards({ evaluations, selectedId, onSelect, busy = false, ca
                 )}
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="font-bold">{c.product_name}</h3>
+                    <h3 className="line-clamp-2 font-bold leading-snug" title={c.product_name}>{c.product_name}</h3>
                     {selected && <span className="chip bg-brand-600 text-white"><Check size={12} strokeWidth={3} /> In your contract</span>}
                     {c.demo && <span className="chip bg-amber-50 text-[10px] font-semibold uppercase text-amber-700 dark:bg-amber-950" title="Fictional demo store, enabled for testing">Demo store (fictional)</span>}
                     {c.engine && <span className="chip bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-600 dark:bg-slate-800 dark:text-slate-300" title="Where this listing was found">{SOURCE_NAMES[c.engine] ?? c.engine}</span>}
@@ -468,7 +517,13 @@ export function OfferCards({ evaluations, selectedId, onSelect, busy = false, ca
               </div>
 
               <div className="mt-3 flex flex-wrap gap-1.5">
-                {shown.map((x) => (
+                {shown.some((x) => x.result === "PASS") && (
+                  <span className="chip bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/15 dark:bg-emerald-950/50 dark:text-emerald-300"
+                        title={shown.filter((x) => x.result === "PASS").map((x) => x.label).join(", ")}>
+                    <Check size={11} strokeWidth={3} /> {shown.filter((x) => x.result === "PASS").length} rules met
+                  </span>
+                )}
+                {shown.filter((x) => x.result !== "PASS").map((x) => (
                   <span key={x.key} title={x.reason}
                         className={`chip ring-1 ring-inset ${x.result === "PASS" ? "bg-emerald-50 text-emerald-700 ring-emerald-600/15 dark:bg-emerald-950/50 dark:text-emerald-300" : x.result === "FAIL" ? "bg-rose-50 text-rose-700 ring-rose-600/15 dark:bg-rose-950/50 dark:text-rose-300" : "bg-amber-50 text-amber-800 ring-amber-600/20 dark:bg-amber-950/50 dark:text-amber-300"} ${!x.mandatory ? "border border-dashed border-current" : ""}`}>
                     {x.result === "PASS" ? <Check size={11} strokeWidth={3} /> : x.result === "FAIL" ? <X size={11} strokeWidth={3} /> : <Question size={11} />}
@@ -490,6 +545,32 @@ export function OfferCards({ evaluations, selectedId, onSelect, busy = false, ca
                   </button>
                 )}
               </div>
+              {others.length > 0 && (
+                <div className="mt-3 border-t border-dashed border-slate-200 pt-2 dark:border-slate-800">
+                  <button className="flex items-center gap-1 text-xs font-semibold text-slate-600 hover:text-brand-600 dark:text-slate-300"
+                          onClick={() => setExpanded(expanded === c.id ? null : c.id)} aria-expanded={expanded === c.id}>
+                    <ChevronDown size={14} className={`transition ${expanded === c.id ? "rotate-180" : ""}`} />
+                    {others.length} more listing{others.length === 1 ? "" : "s"} of this product
+                    <span className="font-normal text-slate-400">from {money(String(Math.min(...others.map((o) => Number(o.candidate.price)))), c.currency)}</span>
+                  </button>
+                  {expanded === c.id && (
+                    <ul className="mt-2 divide-y divide-slate-100 rounded-xl bg-slate-50 dark:divide-slate-800 dark:bg-slate-800/40">
+                      {others.map((o) => (
+                        <li key={o.candidate.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-xs">
+                          <span className="font-semibold">{o.seller?.seller_name ?? o.candidate.listing_seller_name}</span>
+                          <span className="text-slate-500">{SOURCE_NAMES[o.candidate.engine ?? ""] ?? ""}</span>
+                          <TriBadge value={o.status} compact />
+                          <span className="ml-auto font-bold tabular-nums">{money(o.candidate.price, o.candidate.currency)}</span>
+                          {canSwitch && onSelect && (o.candidate.external || o.status === "PASS") && (
+                            <button className="btn-secondary px-2.5 py-1 text-xs" disabled={busy}
+                                    onClick={() => onSelect(o.candidate.id, o.conditions.filter((x) => x.mandatory && x.result === "FAIL").map((x) => `${x.label}: ${x.reason}`))}>Choose</button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
               {isOpen && (
                 <div className="mt-3 grid gap-4 border-t border-slate-100 pt-3 text-xs dark:border-slate-800 md:grid-cols-2">
                   <ul className="space-y-1.5">
@@ -520,6 +601,11 @@ export function OfferCards({ evaluations, selectedId, onSelect, busy = false, ca
           );
         })}
       </div>
+      {groups.length > limit && (
+        <button className="btn-secondary mt-4 w-full" onClick={() => setLimit(limit + 8)}>
+          Show {Math.min(8, groups.length - limit)} more of {groups.length - limit} remaining
+        </button>
+      )}
       <p className="mt-3 text-xs text-slate-500">Amber = the listing doesn't say, so you'll confirm it at the store. Unknown information is never treated as a pass. Dashed chips are advisory.</p>
     </Card>
   );

@@ -131,10 +131,10 @@ export default function Dashboard() {
                 </div>
               )}
               <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-1 pt-3 dark:border-slate-800">
-                <div className="flex rounded-xl bg-slate-100 p-1 text-xs font-semibold dark:bg-slate-800" role="radiogroup" aria-label="Autonomy mode">
+                <div className="flex flex-wrap rounded-xl bg-slate-100 p-1 text-xs font-semibold dark:bg-slate-800" role="radiogroup" aria-label="Autonomy mode">
                   {[{ v: "ASSISTED", l: "Buy it", t: "Find, verify and buy with your approval", i: <CreditCard size={14} /> }, { v: "MANDATE", l: "My mandate", t: "Approve automatically if it fits a purchasing mandate you set (you still pay yourself)", i: <ShieldCheck size={14} /> }, { v: "MONITORING_ONLY", l: "Just watch", t: "Track the offer without buying (you can switch to buying later)", i: <Eye size={14} /> }].map((m) => (
                     <button key={m.v} role="radio" aria-checked={mode === m.v} onClick={() => setMode(m.v)} title={m.t}
-                            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 transition ${mode === m.v ? "bg-white text-brand-700 shadow-sm dark:bg-slate-700 dark:text-white" : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"}`}>
+                            className={`flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 transition ${mode === m.v ? "bg-white text-brand-700 shadow-sm dark:bg-slate-700 dark:text-white" : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"}`}>
                       {m.i}{m.l}
                     </button>
                   ))}
@@ -155,7 +155,7 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <ol className="grid content-center gap-3 lg:col-span-2">
+          <ol className="hidden content-center gap-3 lg:col-span-2 lg:grid">
             {STEPS.map((s, i) => (
               <li key={s.title} className="flex gap-3 rounded-2xl bg-white/70 p-4 ring-1 ring-inset ring-brand-100 backdrop-blur">
                 <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-brand-100 text-brand-600">{s.icon}</span>

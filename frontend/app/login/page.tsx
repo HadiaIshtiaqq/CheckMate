@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { ApiError, post } from "@/lib/api";
 import { ArrowRight, Loader, Lock, ShieldCheck } from "@/components/icons";
+import { LogoMark } from "@/components/Logo";
 
 export default function LoginPage() {
   const [mode, setMode] = useState<"login" | "register">("login");
@@ -33,6 +34,7 @@ export default function LoginPage() {
   return (
     <div className="mx-auto grid max-w-4xl items-center gap-8 py-8 md:grid-cols-2">
       <div className="hidden md:block">
+        <LogoMark size={56} className="mb-5 drop-shadow" />
         <h1 className="text-3xl font-extrabold leading-tight tracking-tight">
           Your shopping team,<br /><span className="bg-gradient-to-r from-brand-600 to-plum-600 bg-clip-text text-transparent">your rules.</span>
         </h1>

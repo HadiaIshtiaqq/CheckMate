@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api, post, type Account, type SystemInfo } from "@/lib/api";
 import { Bot, Lock, ShieldCheck, Store } from "@/components/icons";
+import { LogoMark, Wordmark } from "@/components/Logo";
 
 export default function Header() {
   const [sys, setSys] = useState<SystemInfo | null | undefined>(undefined);
@@ -32,13 +33,9 @@ export default function Header() {
     <header className="sticky top-0 z-30 border-b border-slate-200/70 bg-white/75 backdrop-blur-xl dark:border-slate-800 dark:bg-slate-950/75">
       <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3">
         <Link href="/" className="group flex items-center gap-3">
-          <span className="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-brand-400 to-brand-600 text-white shadow-lg shadow-brand-300/40 transition group-hover:scale-105">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M5 12.5 10 17 19 7" />
-            </svg>
-          </span>
+          <LogoMark size={40} className="drop-shadow-sm transition group-hover:scale-105" />
           <span>
-            <span className="block text-lg font-extrabold tracking-tight">CHECK<span className="bg-gradient-to-r from-brand-600 to-plum-600 bg-clip-text text-transparent">MATE</span></span>
+            <Wordmark className="block text-xl leading-none" />
             <span className="hidden text-[11px] text-slate-500 sm:block">Your AI shopping team. Your rules. Your money protected.</span>
           </span>
         </Link>
@@ -62,7 +59,7 @@ export default function Header() {
                     title={sys.paypal_environment === "sandbox" ? "Real PayPal Sandbox" : "Simulated PayPal — no money moves"}>
                 <Lock size={12} /> Demo store · PayPal {sys.paypal_environment === "sandbox" ? "Sandbox" : "Simulated"}
               </span>}
-              <span className="chip bg-slate-100 text-slate-700 ring-1 ring-inset ring-slate-500/10 dark:bg-slate-800 dark:text-slate-300"
+              <span className="chip hidden bg-slate-100 text-slate-700 ring-1 ring-inset ring-slate-500/10 md:inline-flex dark:bg-slate-800 dark:text-slate-300"
                     title="Language model used by the agents (rules always enforce the final decision)">
                 <Bot size={12} /> {llm}
               </span>
@@ -73,7 +70,7 @@ export default function Header() {
               <Link href="/mandates" className="chip bg-white text-slate-700 ring-1 ring-inset ring-slate-200 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700">
                 <ShieldCheck size={12} /> Mandates
               </Link>
-              <span className="chip max-w-[180px] truncate bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300" title={account.email ?? ""}>{account.email}</span>
+              <span className="chip hidden max-w-[180px] truncate bg-slate-100 md:inline-flex text-slate-600 dark:bg-slate-800 dark:text-slate-300" title={account.email ?? ""}>{account.email}</span>
               <button onClick={signOut} className="chip bg-white text-slate-600 ring-1 ring-inset ring-slate-200 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-700">Sign out</button>
             </>
           )}

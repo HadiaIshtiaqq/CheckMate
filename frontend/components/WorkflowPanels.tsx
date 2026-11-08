@@ -533,9 +533,9 @@ export function ContractCard({ contract, state, busy, onApprove, onRevoke }: {
   const editable = ["CONTRACT_CREATED", "CHECKOUT_BLOCKED", "PAYMENT_PENDING_APPROVAL", "PAYMENT_FAILED"].includes(state);
   return (
     <section id="contract" className="card animate-fade-up scroll-mt-24 overflow-hidden p-0">
-      <div className="flex items-center justify-between bg-gradient-to-r from-slate-900 to-brand-950 px-5 py-3 text-white">
+      <div className="flex items-center justify-between bg-gradient-to-r from-brand-100 to-plum-100 px-5 py-3 text-brand-900">
         <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest"><FileText size={15} /> {t.purchase_channel === "external_store" ? "Purchase plan" : "Purchase contract"}</span>
-        <span className="chip bg-white/15 text-white">v{contract.version}</span>
+        <span className="chip bg-white/80 text-brand-700">v{contract.version}</span>
       </div>
       <div className="p-5">
         <div className="text-lg font-bold leading-tight">{t.product_name}</div>
@@ -719,10 +719,10 @@ export function PaymentCard({ wf, payment, busy, onPay, onCapture }: {
     <Card id="pay" title="PayPal payment" icon={<CreditCard size={15} />}
           right={payment && <span className="chip bg-slate-100 text-slate-600 dark:bg-slate-800">{payment.environment === "sandbox" ? "Sandbox" : "Simulated"}</span>}>
       {v?.status === "PASS" && v.checkout_snapshot ? (
-        <div className="mb-4 rounded-2xl bg-gradient-to-br from-slate-900 to-brand-950 p-4 text-white">
-          <div className="text-[11px] uppercase tracking-wider text-brand-200">Verified order total</div>
+        <div className="mb-4 rounded-2xl bg-gradient-to-br from-brand-100 to-plum-100 p-4 text-brand-950 ring-1 ring-brand-200">
+          <div className="text-[11px] uppercase tracking-wider text-brand-700">Verified order total</div>
           <div className="text-3xl font-extrabold tabular-nums">{money(payment?.captured_amount ?? v.checkout_snapshot.stated_total, payment?.captured_currency ?? v.checkout_snapshot.currency)}</div>
-          <div className="mt-1 truncate text-xs text-brand-200">{wf.contract?.terms.product_name} · {wf.contract?.terms.seller_name}</div>
+          <div className="mt-1 truncate text-xs text-brand-800/80">{wf.contract?.terms.product_name} · {wf.contract?.terms.seller_name}</div>
         </div>
       ) : (
         <p className="mb-3 flex items-start gap-2 text-sm text-slate-500"><Lock size={15} className="mt-0.5 shrink-0" />Payment unlocks only after the checkout verification passes.</p>

@@ -7,13 +7,13 @@ const config: Config = {
       colors: {
         // Burgundy brand palette (600 = classic burgundy #800020)
         brand: {
-          50: "#fcf2f4", 100: "#f9e2e7", 200: "#f1c3cd", 300: "#e494a6", 400: "#c95a74", 500: "#a8304f",
-          600: "#800020", 700: "#6c001b", 800: "#580017", 900: "#440012", 950: "#27000a",
+          50: "#fdf6f8", 100: "#fbecf0", 200: "#f6d8e0", 300: "#eebdc9", 400: "#de97a9", 500: "#c47186",
+          600: "#a8506a", 700: "#8f4259", 800: "#76374a", 900: "#5f2d3c", 950: "#371820",
         },
         // Deep plum-wine partner used in gradients
         plum: {
-          50: "#faf3f6", 100: "#f3e3ea", 200: "#e6c5d3", 300: "#d29ab2", 400: "#b96d8e", 500: "#9b4a6e",
-          600: "#7e3155", 700: "#672646", 800: "#521e38", 900: "#3f172b", 950: "#240b18",
+          50: "#fcf6f9", 100: "#f7eaf1", 200: "#efd5e2", 300: "#e2b5ca", 400: "#cc8daa", 500: "#b36d8d",
+          600: "#975673", 700: "#7f475f", 800: "#683b4f", 900: "#553141", 950: "#331b26",
         },
       },
       fontFamily: { sans: ["var(--font-inter)", "Inter", "ui-sans-serif", "system-ui", "sans-serif"], mono: ["ui-monospace", "SFMono-Regular", "monospace"] },

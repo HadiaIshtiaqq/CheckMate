@@ -7,16 +7,16 @@
 }
 
 body {
-  @apply min-h-screen bg-slate-50 text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100;
+  @apply min-h-screen bg-brand-50/60 text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100;
   background-image:
-    radial-gradient(60rem 30rem at 0% -10%, rgba(128, 0, 32, 0.08), transparent 60%),
-    radial-gradient(50rem 25rem at 100% 0%, rgba(126, 49, 85, 0.07), transparent 60%);
+    radial-gradient(60rem 30rem at 0% -10%, rgba(222, 151, 169, 0.22), transparent 60%),
+    radial-gradient(50rem 25rem at 100% 0%, rgba(204, 141, 170, 0.18), transparent 60%);
   background-attachment: fixed;
 }
 
 @layer components {
   .card {
-    @apply rounded-2xl border border-slate-200/80 bg-white/90 p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_-12px_rgba(15,23,42,0.12)]
+    @apply rounded-2xl border border-brand-100 bg-white/90 p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_-12px_rgba(15,23,42,0.12)]
       backdrop-blur dark:border-slate-800 dark:bg-slate-900/80;
   }
   .card-title {

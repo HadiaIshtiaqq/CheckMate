@@ -18,7 +18,7 @@ const EXAMPLES = [
 ];
 
 const STEPS = [
-  { icon: <Search size={18} />, title: "Search real stores", text: "Live Google Shopping listings across thousands of retailers." },
+  { icon: <Search size={18} />, title: "Search real stores", text: "Live listings from Google Shopping, Amazon, eBay and Walmart." },
   { icon: <ShieldCheck size={18} />, title: "Check your rules", text: "Price, store, specs, returns, subscriptions. Unknowns stay unknown." },
   { icon: <FileText size={18} />, title: "Approve a plan", text: "A hashed purchase plan with a checklist to confirm at the store." },
   { icon: <Award size={18} />, title: "Prove", text: "Report what you paid; get a reconciled, tamper-evident passport." },
@@ -83,21 +83,21 @@ export default function Dashboard() {
   return (
     <div className="space-y-8">
       {/* ----------------------------------------------------------- hero */}
-      <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-brand-900 via-brand-700 to-plum-700 p-6 text-white shadow-xl shadow-brand-900/30 sm:p-8">
-        <div className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full bg-white/10 blur-2xl" />
-        <div className="pointer-events-none absolute -bottom-32 left-1/3 h-72 w-72 rounded-full bg-brand-300/20 blur-3xl" />
+      <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-brand-100 via-brand-50 to-plum-100 p-6 text-brand-950 ring-1 ring-brand-200 shadow-xl shadow-brand-200/40 sm:p-8">
+        <div className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full bg-white/60 blur-2xl" />
+        <div className="pointer-events-none absolute -bottom-32 left-1/3 h-72 w-72 rounded-full bg-brand-200/50 blur-3xl" />
         <div className="relative grid gap-8 lg:grid-cols-5">
           <div className="lg:col-span-3">
-            <span className="chip bg-white/15 text-white ring-1 ring-inset ring-white/25"><Sparkles size={13} /> 10 specialised agents · 1 rule engine</span>
+            <span className="chip bg-white/70 text-brand-700 ring-1 ring-inset ring-brand-200"><Sparkles size={13} /> 10 specialised agents · 1 rule engine</span>
             <h1 className="mt-4 text-3xl font-extrabold leading-tight tracking-tight sm:text-4xl">
               Tell us what to buy.<br />We'll make sure it's exactly what you pay for.
             </h1>
-            <p className="mt-3 max-w-xl text-sm text-brand-100/90">
+            <p className="mt-3 max-w-xl text-sm text-brand-900/80">
               CHECKMATE searches real stores, checks every offer against your rules, shows exactly what it could and
               couldn't verify, and turns the best one into a purchase plan you approve before buying.
             </p>
 
-            <div className="mt-6 rounded-2xl bg-white p-3 text-slate-900 shadow-2xl shadow-brand-900/30 dark:bg-slate-900 dark:text-slate-100">
+            <div className="mt-6 rounded-2xl bg-white p-3 text-slate-900 shadow-xl shadow-brand-200/60 dark:bg-slate-900 dark:text-slate-100">
               <label htmlFor="composer" className="sr-only">Shopping request</label>
               <textarea id="composer" className="min-h-[88px] w-full resize-none rounded-xl border-0 bg-transparent p-2 text-[15px] leading-relaxed outline-none placeholder:text-slate-400"
                         value={text} onChange={(e) => setText(e.target.value)} maxLength={2000}
@@ -144,11 +144,11 @@ export default function Dashboard() {
                 </button>
               </div>
             </div>
-            {error && <p className="mt-3 rounded-lg bg-rose-500/20 px-3 py-2 text-sm text-white ring-1 ring-rose-200/40">{error}</p>}
+            {error && <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 ring-1 ring-rose-200">{error}</p>}
             <div className="mt-4 flex flex-wrap gap-2">
               {EXAMPLES.map((ex) => (
                 <button key={ex.label} onClick={() => setText(ex.text)}
-                        className={`chip ring-1 ring-inset transition ${text === ex.text ? "bg-white text-brand-700 ring-white" : "bg-white/10 text-white ring-white/25 hover:bg-white/20"}`}>
+                        className={`chip ring-1 ring-inset transition ${text === ex.text ? "bg-brand-600 text-white ring-brand-600" : "bg-white/70 text-brand-800 ring-brand-200 hover:bg-white"}`}>
                   {ex.label}
                 </button>
               ))}
@@ -157,11 +157,11 @@ export default function Dashboard() {
 
           <ol className="grid content-center gap-3 lg:col-span-2">
             {STEPS.map((s, i) => (
-              <li key={s.title} className="flex gap-3 rounded-2xl bg-white/10 p-4 ring-1 ring-inset ring-white/15 backdrop-blur">
-                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-white/20">{s.icon}</span>
+              <li key={s.title} className="flex gap-3 rounded-2xl bg-white/70 p-4 ring-1 ring-inset ring-brand-100 backdrop-blur">
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-brand-100 text-brand-600">{s.icon}</span>
                 <div>
                   <div className="text-sm font-bold">{i + 1}. {s.title}</div>
-                  <div className="text-xs text-brand-100/90">{s.text}</div>
+                  <div className="text-xs text-brand-900/70">{s.text}</div>
                 </div>
               </li>
             ))}

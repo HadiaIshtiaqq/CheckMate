@@ -2,6 +2,10 @@
 
 **Your AI shopping team. Your rules. Your money protected.**
 
+> AI shopping agents that search real stores (Google Shopping, Amazon, eBay, Walmart), check every offer against your rules with a deterministic policy engine, and produce signed purchase plans and tamper-evident Purchase Passports.
+
+Topics: `ai-agents` `ecommerce` `fastapi` `nextjs` `gemini` `serpapi` `policy-engine` `purchase-verification`
+
 CHECKMATE searches real stores, checks every offer against your rules, and turns the best one into a hashed, signed **purchase plan** that you approve. After you buy, it reconciles the purchase and issues a tamper-evident **Purchase Truth Passport**. It never invents products: anything a listing doesn't state stays *unknown*, and unknown is never treated as a pass.
 
 > Agents reason; a deterministic policy engine decides. No LLM output can approve, loosen a rule, or authorise a payment.

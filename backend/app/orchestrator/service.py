@@ -236,7 +236,10 @@ def discover_and_evaluate(db: Session, wf: Workflow, c: Container, intent: Shopp
     record_run(db, wf, disc, f"{n} candidate product(s) found" if disc.ok else None)
     if not disc.ok or not disc.value:
         if mark_states:
-            wf.blocked_reason = "No matching products were found in supported sources."
+            err = disc.envelope.error or ""
+            wf.blocked_reason = (err.split(": ", 1)[1] if err.startswith("ProductSourceError") else
+                                 f"No listings were found for \"{intent.product_description}\" in the connected "
+                                 f"stores." if disc.ok else "Product search failed; please try again.")
             set_state(db, wf, WS.EVIDENCE_INCOMPLETE, wf.blocked_reason)
             return None
         return []
@@ -425,6 +428,9 @@ def verify_checkout(db: Session, user_id: str, contract_id: str, scenario: str) 
     if scenario not in SCENARIOS:
         raise ServiceError(f"Unknown scenario. Options: {', '.join(SCENARIOS)}")
     row, wf = owned_contract(db, user_id, contract_id)
+    if row.terms.get("purchase_channel") == "external_store":
+        raise Conflict("This is a real store's offer. Its checkout can't be inspected by CHECKMATE: confirm the "
+                       "checklist on the store's page, buy there, then report your purchase.")
     if wf.state not in CONTRACT_STATES:
         raise Conflict(f"Checkout cannot be verified while workflow is {wf.state}")
     if wf.autonomy_mode == "MONITORING_ONLY":
@@ -509,12 +515,14 @@ def near_miss_suggestions(intent: ShoppingIntent, evaluations: list[CandidateEva
     for e in evaluations:
         if e.status == Tri.PASS:
             continue
-        failing = [c for c in e.conditions if c.mandatory and c.result != Tri.PASS]
+        external = e.candidate.external
+        failing = [c for c in e.conditions if c.mandatory and
+                   (c.result == Tri.FAIL if external else c.result != Tri.PASS)]
         if not failing or any(c.result == Tri.UNKNOWN for c in failing):
             continue  # unknown evidence is never "fixed" by relaxing the user's rules
         keys = {c.key for c in failing}
         name = e.candidate.product_name
-        total = e.cost.total if e.cost else None
+        total = (e.cost.total or (e.cost.known_subtotal if external else None)) if e.cost else None
         price = f" ({money_str(total)} {cur} total)" if total is not None else ""
         s = None
         if keys == {"budget"} and total is not None and intent.max_budget is not None:
@@ -614,14 +622,19 @@ def select_alternative(db: Session, user_id: str, workflow_id: str, product_id: 
     if wf.state not in CONTRACT_STATES:
         raise Conflict(f"Cannot switch offers while workflow is {wf.state}")
     alt = next((a for a in (wf.alternatives or []) if a["product_id"] == product_id), None)
-    if not alt:
-        raise NotFound("Alternative not found")
-    ev = CandidateEvaluation.model_validate(alt["evaluation"])
+    ev_json = alt["evaluation"] if alt else next(
+        (e for e in reversed(wf.evaluations or []) if e["candidate"]["id"] == product_id), None)
+    if not ev_json:
+        raise NotFound("Offer not found")
+    ev = CandidateEvaluation.model_validate(ev_json)
+    if ev.status == Tri.FAIL or (ev.status == Tri.UNKNOWN and not ev.candidate.external):
+        raise Conflict("That offer doesn't meet your requirements.")
     intent = ShoppingIntent.model_validate(wf.intent)
     row = db.get(PurchaseContract, wf.current_contract_id)
     new_terms = build_contract_terms(intent, ev, wf.id, utcnow() + _ttl())
     revise_contract(db, wf, row, new_terms, f"You selected alternative offer {ev.candidate.product_name}")
-    wf.evaluations = (wf.evaluations or []) + [alt["evaluation"]]
+    if alt:
+        wf.evaluations = (wf.evaluations or []) + [alt["evaluation"]]
     wf.alternatives = []
     db.commit()
     if wf.state != WS.CONTRACT_CREATED.value:
@@ -649,6 +662,8 @@ def _auth(db: Session, wf: Workflow, row: PurchaseContract, ver: CheckoutVerific
 
 def create_payment_order(db: Session, user_id: str, contract_id: str) -> PaymentTransaction:
     row, wf = owned_contract(db, user_id, contract_id)
+    if row.terms.get("purchase_channel") == "external_store":
+        raise Forbidden("Real-store purchases are paid on the store's own site, not through CHECKMATE.")
     ver = latest_verification(db, row.id)
     if ver is None:
         raise Conflict("Checkout has not been verified")
@@ -1095,3 +1110,111 @@ def monitor_active_contracts() -> list[str]:
                 log.exception("scheduled monitoring failed for %s", wf.id)
                 db.rollback()
     return checked
+
+
+# ============================================================ store purchase ====
+def report_store_purchase(db: Session, user_id: str, contract_id: str, *, amount: str, currency: str,
+                          confirmations: dict[str, bool], order_reference: str | None) -> Workflow:
+    """Real-store channel: the shopper bought on the store's site and reports what they
+    paid and confirmed. CHECKMATE reconciles that against the approved plan."""
+    row, wf = owned_contract(db, user_id, contract_id)
+    terms = ContractTerms.model_validate(row.terms)
+    if terms.purchase_channel != "external_store":
+        raise Conflict("Purchases from the demo store are paid through PayPal in CHECKMATE.")
+    if wf.state != WS.CONTRACT_CREATED.value:
+        raise Conflict(f"A purchase can't be reported while the workflow is {wf.state}")
+    if utcnow() >= row.expires_at:
+        raise Conflict("This purchase plan has expired. Search again for current prices.")
+    if not active_approval(db, row):
+        raise Conflict(f"Approve the purchase plan (v{row.version}) before reporting a purchase.")
+    amt = money(amount) if amount.replace(".", "", 1).isdigit() else None
+    if amt is None or amt <= 0 or amt > Decimal("1000000"):
+        raise ServiceError("Enter the amount you paid, e.g. 97.50")
+    known = {i["key"] for i in terms.checklist}
+    confirmations = {k: bool(v) for k, v in confirmations.items() if k in known}
+    report = {"amount": money_str(amt), "currency": currency, "confirmations": confirmations,
+              "order_reference": (order_reference or "").strip() or None}
+    emit(db, wf, "purchase.reported", f"You reported buying at {terms.store_name} for {money_str(amt)} {currency}",
+         payload=report)
+    set_state(db, wf, WS.RECONCILIATION, "Reconciling your store purchase against the approved plan")
+    c = get_container()
+    intent = ShoppingIntent.model_validate(wf.intent)
+    run = c.reconciliation().execute(wf.id, subject=row.id, intent=intent, contract=terms, contract_id=row.id,
+                                     version=row.version, store_report=report)
+    rec: ReconciliationReport = run.value if run.ok else ReconciliationReport(
+        status="INCOMPLETE", checks=[], discrepancies=[], paypal_record={}, receipt=None,
+        notes=[f"Reconciliation agent failed: {run.envelope.error}"])
+    record_run(db, wf, run, f"Reconciliation: {rec.status}" if run.ok else None)
+    if rec.status != "RECONCILED":
+        wf.has_discrepancy = rec.status == "DISCREPANCY"
+        db.commit()
+        set_state(db, wf, WS.RECONCILIATION_REQUIRED, f"Reconciliation {rec.status}: " + (
+            "; ".join(d.description for d in rec.discrepancies) or "some checklist items were not confirmed"))
+    passport = build_store_passport(db, wf, row, terms, intent, rec, report)
+    set_state(db, wf, WS.PASSPORT_GENERATED, "Purchase Truth Passport generated", payload={"passport_id": passport.id})
+    emit(db, wf, "passport.generated", f"Passport {passport.id} issued", payload={"passport_hash": passport.passport_hash})
+    set_state(db, wf, WS.COMPLETED, "Purchase lifecycle complete" + (" (with recorded discrepancies)"
+                                                                     if wf.has_discrepancy else ""))
+    return wf
+
+
+def build_store_passport(db: Session, wf: Workflow, row: PurchaseContract, terms: ContractTerms,
+                         intent: ShoppingIntent, rec: ReconciliationReport, report: dict) -> PurchasePassportRow:
+    ev = _selected_evaluation(wf, terms.product_id) or {}
+    approval = db.scalars(select(ContractApproval).where(ContractApproval.contract_id == row.id,
+                                                         ContractApproval.version == row.version)
+                          .order_by(ContractApproval.created_at.desc())).first()
+    history = [{"version": v.version, "contract_hash": v.contract_hash, "reason": v.change_reason,
+                "created_at": v.created_at.isoformat()}
+               for v in db.scalars(select(ContractVersion).where(ContractVersion.contract_id == row.id)
+                                   .order_by(ContractVersion.version))]
+    events = list_events(db, wf.id)
+    chain_ok, _ = verify_chain(events)
+    confirm_checks = [c.model_dump(mode="json") for c in rec.checks if c.key.startswith("confirm_")]
+    pid = new_id("pp")
+    body = {
+        "schema": "checkmate.purchase_truth_passport/v1",
+        "passport_id": pid,
+        "purchase_id": f"store:{row.id}:v{row.version}",
+        "workflow_id": wf.id,
+        "purchase_channel": "external_store",
+        "generated_at": utcnow().isoformat(),
+        "original_intent": {"raw_text": wf.raw_request, "structured": intent.model_dump(mode="json")},
+        "selected_product": {"product_id": terms.product_id, "product_name": terms.product_name,
+                             "brand": terms.brand, "model": terms.model, "variant": terms.exact_variant,
+                             "source_reference": terms.source_reference, "store": terms.store_name,
+                             "listing_seen_at": terms.price_as_of, "thumbnail": (ev.get("candidate") or {}).get("thumbnail")},
+        "seller_evidence": ev.get("seller"),
+        "purchase_terms": ev.get("terms"),
+        "cost_breakdown": {"pre_contract_assessment": ev.get("cost"),
+                           "listed_price": money_str(terms.unit_price), "listed_price_as_of": terms.price_as_of,
+                           "verified_checkout_lines": [], "verified_checkout_total": report["amount"],
+                           "currency": report["currency"], "total_source": "self-reported"},
+        "contract": {"contract_id": row.id, "version": row.version, "contract_hash": row.contract_hash,
+                     "hash_algorithm": HASH_ALGORITHM, "terms": terms.model_dump(mode="json"),
+                     "approved_at": approval.created_at.isoformat() if approval else None,
+                     "approved_hash": approval.contract_hash if approval else None, "history": history},
+        "checkout_verification": {
+            "result": "CONFIRMED_BY_YOU" if all(c["result"] == "PASS" for c in confirm_checks) else
+                      ("NOT_MET" if any(c["result"] == "FAIL" for c in confirm_checks) else "INCOMPLETE"),
+            "conditions": confirm_checks,
+            "explanation": "Real stores' checkouts can't be inspected by CHECKMATE; these items were confirmed by "
+                           "you on the store's page."},
+        "payment": {"environment": "external_store", "channel": "external_store", "store": terms.store_name,
+                    "store_url": terms.store_url, "captured_amount": report["amount"],
+                    "captured_currency": report["currency"], "order_reference": report.get("order_reference"),
+                    "status": "REPORTED_BY_YOU", "paypal_order_id": None, "paypal_capture_id": None,
+                    "source": "Self-reported by you; CHECKMATE did not process this payment."},
+        "receipt_evidence": rec.receipt,
+        "reconciliation": rec.model_dump(mode="json"),
+        "discrepancies": [d.model_dump() for d in rec.discrepancies],
+        "event_timeline": [{"seq": e.seq, "type": e.event_type, "agent": e.agent_id, "state": e.state,
+                            "message": e.message, "at": e.ts, "hash": e.hash} for e in events],
+        "audit_chain": {"head_hash": events[-1].hash if events else None, "events": len(events),
+                        "verified": chain_ok},
+    }
+    passport = PurchasePassportRow(id=pid, workflow_id=wf.id, user_id=wf.user_id, body=to_jsonable(body),
+                                   passport_hash=hash_obj(body))
+    db.add(passport)
+    db.commit()
+    return passport

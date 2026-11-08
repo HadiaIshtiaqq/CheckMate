@@ -49,9 +49,17 @@ def evaluate_candidate(
     cost: CostAssessment | None,
 ) -> list[ConditionResult]:
     out: list[ConditionResult] = []
-    out.append(_c("specifications", "Specifications", ", ".join(f"{k}={v}" for k, v in intent.specifications.items())
-                  or "any", "; ".join(cand.gaps) or "all matched",
-                  F if cand.gaps else P, "; ".join(cand.gaps) or "Matches the requested specifications."))
+    wanted = ", ".join(f"{k}={v}" for k, v in intent.specifications.items()) or "any"
+    if intent.preferred_variant:
+        wanted += f", colour={intent.preferred_variant}"
+    if cand.gaps:
+        out.append(_c("specifications", "Specifications", wanted, "; ".join(cand.gaps), F, "; ".join(cand.gaps)))
+    elif cand.unverified_specs:
+        out.append(_c("specifications", "Specifications", wanted, "not stated", U,
+                      "Not stated in the listing: " + "; ".join(cand.unverified_specs)))
+    else:
+        out.append(_c("specifications", "Specifications", wanted, "all matched", P,
+                      "Matches the requested specifications."))
 
     # seller evidence
     req = intent.seller_preferences.min_evidence_level
@@ -132,8 +140,12 @@ def evaluate_candidate(
     elif cost.error:
         out.append(_c("budget", "Total cost", f"<= {intent.max_budget}", None, U, cost.error))
     elif not cost.is_complete:
-        out.append(_c("budget", "Total cost", f"<= {intent.max_budget}", f">= {cost.known_subtotal} + unknown", U,
-                      f"Unknown charges: {', '.join(cost.unknown_items)}."))
+        if cost.known_subtotal is not None and cost.known_subtotal > intent.max_budget:
+            out.append(_c("budget", "Total cost", f"<= {intent.max_budget}", f">= {cost.known_subtotal}", F,
+                          f"Known charges alone ({cost.known_subtotal}) already exceed the budget {intent.max_budget}."))
+        else:
+            out.append(_c("budget", "Total cost", f"<= {intent.max_budget}", f">= {cost.known_subtotal} + unknown", U,
+                          f"Not shown on the listing: {', '.join(cost.unknown_items)}."))
     else:
         ok = cost.total <= intent.max_budget
         est = " (includes estimated tax)" if cost.includes_estimates else ""

@@ -53,6 +53,7 @@ export default function PassportPage({ params }: { params: { id: string } }) {
   const pay = b.payment;
   const c = b.contract;
   const ok = rec.status === "RECONCILED";
+  const store = b.purchase_channel === "external_store";
 
   return (
     <div className="space-y-5">
@@ -77,10 +78,16 @@ export default function PassportPage({ params }: { params: { id: string } }) {
           </div>
 
           <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <Fact icon={<CreditCard size={13} />} label="Charged via PayPal" value={money(pay.captured_amount, pay.captured_currency)} sub={pay.environment === "sandbox" ? "PayPal Sandbox" : "Simulated PayPal"} />
+            {store ? (
+              <Fact icon={<CreditCard size={13} />} label={`Paid at ${pay.store}`} value={money(pay.captured_amount, pay.captured_currency)} sub="reported by you" />
+            ) : (
+              <Fact icon={<CreditCard size={13} />} label="Charged via PayPal" value={money(pay.captured_amount, pay.captured_currency)} sub={pay.environment === "sandbox" ? "PayPal Sandbox" : "Simulated PayPal"} />
+            )}
             <Fact icon={<FileText size={13} />} label="Contract limit" value={money(c.terms.max_total, c.terms.currency)} sub={`v${c.version} · approved`} />
             <Fact icon={<Store size={13} />} label="Seller" value={c.terms.seller_name} sub={(b.seller_evidence?.evidence_level ?? "").replace("_EVIDENCE", " evidence").toLowerCase()} />
-            <Fact icon={<ShieldCheck size={13} />} label="Checkout check" value={b.checkout_verification.result} sub={`${b.checkout_verification.conditions.length} conditions`} />
+            <Fact icon={<ShieldCheck size={13} />} label={store ? "Checklist" : "Checkout check"}
+                  value={({ CONFIRMED_BY_YOU: "Confirmed by you", NOT_MET: "Not met", INCOMPLETE: "Incomplete" } as Record<string, string>)[b.checkout_verification.result] ?? b.checkout_verification.result}
+                  sub={`${b.checkout_verification.conditions.length} ${store ? "items" : "conditions"}`} />
           </div>
 
           <button onClick={copyHash} className="mt-5 flex max-w-full items-center gap-2 rounded-xl bg-slate-100 px-3 py-2 text-left text-xs text-slate-600 transition hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300" title="Copy passport hash">
@@ -112,9 +119,15 @@ export default function PassportPage({ params }: { params: { id: string } }) {
           {b.cost_breakdown.verified_checkout_lines.map((l: any, i: number) => (
             <Field key={i} label={l.label}>{money(l.amount, l.currency)}</Field>
           ))}
+          {store && (
+            <Field label={`Listed price${b.cost_breakdown.listed_price_as_of ? ` (${new Date(b.cost_breakdown.listed_price_as_of).toLocaleDateString()})` : ""}`}>
+              {money(b.cost_breakdown.listed_price, b.cost_breakdown.currency)}
+            </Field>
+          )}
           <div className="mt-2 flex justify-between border-t border-slate-200 pt-2 text-sm font-extrabold dark:border-slate-700">
-            <span>Verified total</span><span>{money(b.cost_breakdown.verified_checkout_total, b.cost_breakdown.currency)}</span>
+            <span>{store ? "Total you paid" : "Verified total"}</span><span>{money(b.cost_breakdown.verified_checkout_total, b.cost_breakdown.currency)}</span>
           </div>
+          {store && <p className="mt-2 text-[11px] text-slate-500">Self-reported; CHECKMATE did not process this payment.</p>}
         </Card>
         <Card title="Purchase terms" icon={<Package size={15} />}>
           <Field label="Warranty">{b.purchase_terms?.warranty_months != null ? `${b.purchase_terms.warranty_months} months` : "Unknown"}</Field>
@@ -125,7 +138,8 @@ export default function PassportPage({ params }: { params: { id: string } }) {
       </div>
 
       <div className="grid gap-5 lg:grid-cols-2">
-        <Card title="Checkout verification" icon={<ShieldCheck size={15} />}>
+        <Card title={store ? "Confirmed at the store" : "Checkout verification"} icon={<ShieldCheck size={15} />}>
+          {store && <p className="mb-3 text-xs text-slate-500">{b.checkout_verification.explanation}</p>}
           <ul className="space-y-2 text-sm">
             {b.checkout_verification.conditions.map((x: any) => (
               <li key={x.key} className="flex gap-2.5"><TriIcon value={x.result} /><span><b>{x.label}</b> — <span className="text-slate-600 dark:text-slate-300">{x.reason}</span></span></li>
@@ -138,11 +152,18 @@ export default function PassportPage({ params }: { params: { id: string } }) {
               <li key={x.key} className="flex gap-2.5"><TriIcon value={x.result} /><span><b>{x.label}</b> — <span className="text-slate-600 dark:text-slate-300">{x.reason}</span></span></li>
             ))}
           </ul>
-          <div className="mt-4 grid gap-2 text-xs sm:grid-cols-2">
-            <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800/50"><div className="font-bold text-slate-500">PayPal order</div><div className="mono truncate">{pay.paypal_order_id}</div></div>
-            <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800/50"><div className="font-bold text-slate-500">PayPal capture</div><div className="mono truncate">{pay.paypal_capture_id}</div></div>
-          </div>
-          {b.receipt_evidence && (
+          {store ? (
+            <div className="mt-4 grid gap-2 text-xs sm:grid-cols-2">
+              <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800/50"><div className="font-bold text-slate-500">Store</div><div className="truncate">{pay.store}</div></div>
+              <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800/50"><div className="font-bold text-slate-500">Order number</div><div className="mono truncate">{pay.order_reference ?? "not given"}</div></div>
+            </div>
+          ) : (
+            <div className="mt-4 grid gap-2 text-xs sm:grid-cols-2">
+              <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800/50"><div className="font-bold text-slate-500">PayPal order</div><div className="mono truncate">{pay.paypal_order_id}</div></div>
+              <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800/50"><div className="font-bold text-slate-500">PayPal capture</div><div className="mono truncate">{pay.paypal_capture_id}</div></div>
+            </div>
+          )}
+          {b.receipt_evidence && !store && (
             <p className="mt-3 text-xs text-slate-500">Receipt {b.receipt_evidence.receipt_id}: <b>{money(b.receipt_evidence.total, b.receipt_evidence.currency)}</b> — {b.receipt_evidence.source_label}</p>
           )}
         </Card>

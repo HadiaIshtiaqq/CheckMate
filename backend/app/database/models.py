@@ -185,6 +185,16 @@ class PurchasePassportRow(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
+class ExternalOffer(Base):
+    """A real-store listing exactly as Google Shopping returned it, kept so the
+    contract and passport can cite what was seen and when."""
+
+    __tablename__ = "external_offers"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    data: Mapped[dict] = mapped_column(JSON)
+    retrieved_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
 # --- Simulation-side tables (not CHECKMATE's own records) ------------------------
 
 

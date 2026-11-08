@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError, post, type Payment, type Suggestion, type SystemInfo, type WfEvent, type Workflow } from "@/lib/api";
 import { StateBadge, timeAgo } from "@/components/ui";
-import { AgentTimeline, ContractCard, IntentSummary, NextStep, OfferCards, PaymentCard, Stepper, VerificationCard } from "@/components/WorkflowPanels";
+import { AgentTimeline, ContractCard, IntentSummary, NextStep, OfferCards, PaymentCard, Stepper, StorePurchaseCard, VerificationCard } from "@/components/WorkflowPanels";
 import { Alert, ArrowLeft, Award, Check, Eye, X } from "@/components/icons";
 
 const RUNNING = new Set(["CREATED", "INTENT_PARSED", "DISCOVERING", "EVALUATING", "CHECKOUT_VERIFICATION", "RECONCILIATION"]);
@@ -105,6 +105,7 @@ export default function WorkflowPage({ params }: { params: { id: string } }) {
   const contractStates = ["CONTRACT_CREATED", "CHECKOUT_BLOCKED", "PAYMENT_PENDING_APPROVAL", "PAYMENT_FAILED"];
   const canVerify = !!contract?.approved && contractStates.includes(wf.state) && wf.autonomy_mode !== "MONITORING_ONLY";
   const lastMessage = [...events].reverse().find((e) => e.type !== "workflow.state_changed")?.message;
+  const external = contract?.terms.purchase_channel === "external_store";
 
   const startPayPal = () => act(async () => {
     const p = await post<Payment>("/api/v1/payments/orders", { contract_id: contract!.id });
@@ -160,18 +161,24 @@ export default function WorkflowPage({ params }: { params: { id: string } }) {
       <div className="grid gap-5 lg:grid-cols-3">
         <div className="space-y-5 lg:col-span-2">
           {wf.intent && <IntentSummary intent={wf.intent} />}
-          {contract && sys && wf.autonomy_mode !== "MONITORING_ONLY" && (
+          {contract && sys && !external && wf.autonomy_mode !== "MONITORING_ONLY" && (
             <VerificationCard verification={wf.verification} scenarios={sys.scenarios} canVerify={canVerify} busy={busy}
                               onVerify={(s) => act(() => post(`/api/v1/contracts/${contract.id}/verify`, { scenario: s }))} />
           )}
-          <OfferCards evaluations={wf.evaluations} selectedId={contract?.terms.product_id} />
+          <OfferCards evaluations={wf.evaluations} selectedId={contract?.terms.product_id} busy={busy}
+                      canSwitch={["CONTRACT_CREATED"].includes(wf.state)}
+                      onSelect={(pid) => act(() => post(`/api/v1/workflows/${id}/alternatives/${pid}/select`), "Plan updated to the offer you chose. Review and approve it.")} />
         </div>
         <div className="space-y-5">
           {contract && (
             <ContractCard contract={contract} state={wf.state} busy={busy} onApprove={approve}
                           onRevoke={() => act(() => post(`/api/v1/contracts/${contract.id}/revoke`), "Approval revoked. No payment can proceed.")} />
           )}
-          {contract && wf.autonomy_mode !== "MONITORING_ONLY" && (
+          {contract && external && wf.autonomy_mode !== "MONITORING_ONLY" && wf.state === "CONTRACT_CREATED" && (
+            <StorePurchaseCard contract={contract} state={wf.state} busy={busy}
+                               onReport={(r) => act(() => post(`/api/v1/contracts/${contract.id}/report-purchase`, r), "Purchase recorded and reconciled. Your passport is ready.")} />
+          )}
+          {contract && !external && wf.autonomy_mode !== "MONITORING_ONLY" && (
             <PaymentCard wf={wf} payment={payment} busy={busy} onPay={startPayPal}
                          onCapture={(pid) => act(() => post(`/api/v1/payments/${pid}/capture`), "Payment captured.")} />
           )}

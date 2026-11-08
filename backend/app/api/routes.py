@@ -32,6 +32,13 @@ class IntentIn(BaseModel):
     autonomy_mode: str = "ASSISTED"
 
 
+class PurchaseReportIn(BaseModel):
+    amount: str = Field(min_length=1, max_length=14)
+    currency: str = Field(min_length=3, max_length=3)
+    confirmations: dict[str, bool] = Field(default_factory=dict)
+    order_reference: str | None = Field(default=None, max_length=100)
+
+
 class ModeIn(BaseModel):
     autonomy_mode: str
 
@@ -73,11 +80,12 @@ class OfferChangeIn(BaseModel):
 @router.get("/system")
 def system_info():
     s = get_settings()
-    llm = get_container().llm
+    c = get_container()
+    llm = c.llm
     return {"paypal_environment": s.paypal_mode, "llm_enabled": llm.enabled, "llm_provider": llm.provider,
-            "llm_model": llm.model if llm.enabled else None, "product_source": "demo-merchant",
-            "channel3_enabled": False, "demo_controls_enabled": s.demo_controls_enabled,
-            "scenarios": SCENARIOS}
+            "llm_model": llm.model if llm.enabled else None, "product_sources": c.catalog.sources(),
+            "real_stores_connected": c.external is not None, "demo_store_enabled": c.merchant is not None,
+            "demo_controls_enabled": s.demo_controls_enabled, "scenarios": SCENARIOS}
 
 
 @router.get("/me")
@@ -172,16 +180,16 @@ def select_alternative(workflow_id: str, product_id: str, user: User = Depends(s
 # ---------------------------------------------------------------- products ---
 @router.post("/products/search")
 def search_products(body: SearchIn, user: User = Depends(current_user)):
-    return get_container().merchant.search_products(body.query, body.category)
+    return get_container().catalog.search(body.query, body.category)
 
 
 @router.get("/products/{product_id}")
 def get_product(product_id: str, user: User = Depends(current_user)):
-    m = get_container().merchant
-    p = m.get_product_details(product_id)
+    cat = get_container().catalog
+    p = cat.product_details(product_id)
     if not p:
         raise svc.NotFound("Product not found")
-    return {**p, "terms": m.get_purchase_terms(product_id), "seller": m.get_seller_information(p["seller_id"])}
+    return {**p, "terms": cat.terms(product_id), "seller": cat.seller_info(p["seller_id"])}
 
 
 # --------------------------------------------------------------- contracts ---
@@ -208,6 +216,15 @@ def revoke_contract(contract_id: str, user: User = Depends(serialized_user), db:
 def verify_contract(contract_id: str, body: VerifyIn, user: User = Depends(serialized_user),
                     db: Session = Depends(get_db)):
     return verification_view(db, svc.verify_checkout(db, user.id, contract_id, body.scenario))
+
+
+@router.post("/contracts/{contract_id}/report-purchase")
+def report_purchase(contract_id: str, body: PurchaseReportIn, user: User = Depends(serialized_user),
+                    db: Session = Depends(get_db)):
+    """For real-store offers: you bought at the store; record what you paid and confirmed."""
+    wf = svc.report_store_purchase(db, user.id, contract_id, amount=body.amount, currency=body.currency.upper(),
+                                   confirmations=body.confirmations, order_reference=body.order_reference)
+    return workflow_detail(db, wf)
 
 
 # ---------------------------------------------------------------- payments ---
@@ -269,9 +286,9 @@ def export_passport(passport_id: str, user: User = Depends(current_user), db: Se
 def change_offer(product_id: str, body: OfferChangeIn, user: User = Depends(serialized_user)):
     """Demo-only: simulate the merchant changing an offer's price so the
     Monitoring Agent has something to detect. Disabled in production."""
-    if not get_settings().demo_controls_enabled:
-        raise svc.Forbidden("Demo controls are disabled")
     m = get_container().merchant
+    if not get_settings().demo_controls_enabled or m is None:
+        raise svc.Forbidden("Demo controls are disabled")
     if not m.get_product_details(product_id):
         raise svc.NotFound("Product not found")
     m.set_price_override(product_id, body.price)

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { api, ApiError, post, type WorkflowSummary } from "@/lib/api";
+import { api, ApiError, post, type SystemInfo, type WorkflowSummary } from "@/lib/api";
 import { StateBadge, money, plural, timeAgo } from "@/components/ui";
 import {
   Alert, ArrowRight, Award, Ban, Clock, CreditCard, Eye, FileText, Loader, Search, ShieldCheck, Sparkles, Zap,
@@ -18,10 +18,10 @@ const EXAMPLES = [
 ];
 
 const STEPS = [
-  { icon: <Search size={18} />, title: "Research", text: "Agents find offers and gather seller & terms evidence." },
-  { icon: <FileText size={18} />, title: "Contract", text: "Your rules become a hashed, versioned purchase contract." },
-  { icon: <ShieldCheck size={18} />, title: "Verify", text: "The final checkout is checked line by line before payment." },
-  { icon: <Award size={18} />, title: "Prove", text: "PayPal payment, reconciliation and a tamper-evident passport." },
+  { icon: <Search size={18} />, title: "Search real stores", text: "Live Google Shopping listings across thousands of retailers." },
+  { icon: <ShieldCheck size={18} />, title: "Check your rules", text: "Price, store, specs, returns, subscriptions. Unknowns stay unknown." },
+  { icon: <FileText size={18} />, title: "Approve a plan", text: "A hashed purchase plan with a checklist to confirm at the store." },
+  { icon: <Award size={18} />, title: "Prove", text: "Report what you paid; get a reconciled, tamper-evident passport." },
 ];
 
 const ACTIVE = new Set(["CREATED", "INTENT_PARSED", "DISCOVERING", "EVALUATING", "CHECKOUT_VERIFICATION",
@@ -37,6 +37,7 @@ export default function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<WorkflowSummary[] | null>(null);
   const [filter, setFilter] = useState<"all" | "you" | "done" | "blocked">("all");
+  const [sys, setSys] = useState<SystemInfo | null>(null);
 
   useEffect(() => {
     const q = new URLSearchParams(window.location.search).get("q");
@@ -45,6 +46,7 @@ export default function Dashboard() {
       window.history.replaceState(null, "", "/");
       document.getElementById("composer")?.focus();
     }
+    api<SystemInfo>("/api/v1/system").then(setSys).catch(() => setSys(null));
     const load = () => api<WorkflowSummary[]>("/api/v1/workflows").then(setRows).catch(() => setRows([]));
     load();
     const t = setInterval(load, 5000);
@@ -89,8 +91,8 @@ export default function Dashboard() {
               Tell us what to buy.<br />We'll make sure it's exactly what you pay for.
             </h1>
             <p className="mt-3 max-w-xl text-sm text-indigo-100">
-              CHECKMATE researches offers, turns your rules into a purchase contract, blocks any checkout that breaks it,
-              and only then hands you a PayPal approval.
+              CHECKMATE searches real stores, checks every offer against your rules, shows exactly what it could and
+              couldn't verify, and turns the best one into a purchase plan you approve before buying.
             </p>
 
             <div className="mt-6 rounded-2xl bg-white p-3 text-slate-900 shadow-2xl shadow-indigo-900/30 dark:bg-slate-900 dark:text-slate-100">
@@ -137,6 +139,21 @@ export default function Dashboard() {
           </ol>
         </div>
       </section>
+
+      {sys && !sys.real_stores_connected && (
+        <section className="card flex flex-col gap-3 border-amber-200 bg-amber-50/70 sm:flex-row sm:items-start dark:border-amber-900 dark:bg-amber-950/30">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-amber-400 text-amber-950"><Alert size={18} /></span>
+          <div className="text-sm">
+            <p className="font-bold">Connect real stores to search for products</p>
+            <p className="mt-1 text-slate-600 dark:text-slate-300">CHECKMATE only shows real listings. It searches Google Shopping (thousands of stores) through SerpAPI:</p>
+            <ol className="mt-2 list-decimal space-y-1 pl-5 text-slate-600 dark:text-slate-300">
+              <li>Create a free account at <a className="font-semibold text-indigo-600 underline" href="https://serpapi.com/users/sign_up" target="_blank" rel="noreferrer">serpapi.com</a> (free plan: 250 searches a month).</li>
+              <li>Copy your API key into <code className="rounded bg-white px-1 dark:bg-slate-800">.env</code> as <code className="rounded bg-white px-1 dark:bg-slate-800">SERPAPI_KEY=…</code></li>
+              <li>Restart the backend.</li>
+            </ol>
+          </div>
+        </section>
+      )}
 
       {/* ---------------------------------------------------------- stats */}
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">

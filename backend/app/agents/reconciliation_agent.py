@@ -20,7 +20,10 @@ class ReconciliationAgent(BaseAgent):
     allowed_tools = frozenset({"paypal.get_order", "merchant.receipt"})
 
     def run(self, *, intent: ShoppingIntent, contract: ContractTerms, contract_id: str, version: int,
-            snapshot: CheckoutSnapshot, order_id: str) -> AgentOutput:
+            snapshot: CheckoutSnapshot | None = None, order_id: str | None = None,
+            store_report: dict | None = None) -> AgentOutput:
+        if store_report is not None:
+            return self._store_purchase(intent, contract, store_report)
         checks: list[ConditionResult] = []
         discrepancies: list[Discrepancy] = []
         notes: list[str] = []
@@ -64,19 +67,7 @@ class ReconciliationAgent(BaseAgent):
               "PayPal order references this contract version." if unit.get("custom_id") == expected_ref
               else "PayPal order does not reference this contract version.")
         # The contract that was paid must still encode the shopper's original constraints.
-        drift = []
-        if contract.max_total != intent.max_budget:
-            drift.append(f"max total {contract.max_total} vs intent budget {intent.max_budget}")
-        if contract.currency != intent.currency:
-            drift.append(f"currency {contract.currency} vs {intent.currency}")
-        if contract.quantity != intent.quantity:
-            drift.append(f"quantity {contract.quantity} vs {intent.quantity}")
-        if contract.subscription_allowed and not intent.subscription_allowed:
-            drift.append("contract allows a subscription the shopper prohibited")
-        if (intent.warranty_requirement.min_months or 0) > (contract.warranty_min_months or 0):
-            drift.append("contract warranty requirement is weaker than requested")
-        if intent.return_requirement.free_returns and not contract.free_returns_required:
-            drift.append("contract dropped the free-returns requirement")
+        drift = intent_drift(intent, contract)
         check("intent_constraints", "Contract matches original intent",
               f"budget {intent.max_budget} {intent.currency}, qty {intent.quantity}",
               f"max {contract.max_total} {contract.currency}, qty {contract.quantity}",
@@ -137,6 +128,87 @@ class ReconciliationAgent(BaseAgent):
                                         description="Merchant receipt", untrusted_content=True))
         return AgentOutput(value=report, evidence=evidence, missing=[] if receipt else ["merchant receipt"],
                            confidence=1.0 if status == "RECONCILED" else 0.6)
+
+    @staticmethod
+    def _store_purchase(intent: ShoppingIntent, contract: ContractTerms, rep: dict) -> AgentOutput:
+        """Purchase made on a real store's site and reported by the shopper."""
+        from app.core.util import utcnow
+
+        checks: list[ConditionResult] = []
+        discrepancies: list[Discrepancy] = []
+
+        def check(key, label, approved, observed, ok: Tri, reason):
+            checks.append(ConditionResult(key=key, label=label, approved=str(approved), observed=str(observed),
+                                          result=ok, reason=reason))
+
+        amount, cur = money(rep["amount"]), rep["currency"]
+        if cur != contract.currency:
+            check("currency", "Currency", contract.currency, cur, F, "You paid in a different currency.")
+            discrepancies.append(Discrepancy(code="CURRENCY_MISMATCH", severity="HIGH",
+                                             description=f"You reported paying in {cur}; the plan was in "
+                                                         f"{contract.currency}.", sources=["you"]))
+        ok = cur == contract.currency and amount <= contract.max_total
+        check("reported_within_max", "Amount paid within your limit", f"<= {contract.max_total} {contract.currency}",
+              f"{amount} {cur}", P if ok else F,
+              "Within the maximum you approved." if ok else "Above the maximum you approved.")
+        if cur == contract.currency and amount > contract.max_total:
+            discrepancies.append(Discrepancy(code="OVER_APPROVED_MAXIMUM", severity="HIGH",
+                                             description=f"You reported paying {amount} {cur}, above your approved "
+                                                         f"maximum of {contract.max_total} {contract.currency}.",
+                                             sources=["you", "contract"]))
+        confirmations = rep.get("confirmations") or {}
+        for item in contract.checklist:
+            if item.get("auto"):
+                continue
+            v = confirmations.get(item["key"])
+            if v is True:
+                check(f"confirm_{item['key']}", item["label"], item["requirement"], "confirmed", P,
+                      "Confirmed by you on the store's page.")
+            elif v is False:
+                check(f"confirm_{item['key']}", item["label"], item["requirement"], "not met", F,
+                      "You reported this requirement was not met.")
+                discrepancies.append(Discrepancy(code=f"NOT_MET_{item['key'].upper()}", severity="HIGH",
+                                                 description=f"{item['label']}: you reported the purchase did not meet "
+                                                             f"'{item['requirement']}'.", sources=["you"]))
+            else:
+                check(f"confirm_{item['key']}", item["label"], item["requirement"], "not confirmed", U,
+                      "Not confirmed.")
+        drift = intent_drift(intent, contract)
+        check("intent_constraints", "Plan matches original intent", f"budget {intent.max_budget} {intent.currency}",
+              f"max {contract.max_total} {contract.currency}", F if drift else P,
+              "; ".join(drift) or "Your original constraints are preserved.")
+        if drift:
+            discrepancies.append(Discrepancy(code="INTENT_CONTRACT_DRIFT", severity="HIGH",
+                                             description="; ".join(drift), sources=["intent", "contract"]))
+        status = "DISCREPANCY" if discrepancies else ("INCOMPLETE" if any(c.result == U for c in checks)
+                                                      else "RECONCILED")
+        receipt = {"source_label": "Self-reported by you (CHECKMATE did not process this payment)",
+                   "store": contract.store_name, "total": str(amount), "currency": cur,
+                   "order_reference": rep.get("order_reference"), "reported_at": utcnow().isoformat(),
+                   "store_url": contract.store_url}
+        report = ReconciliationReport(status=status, checks=checks, discrepancies=discrepancies, paypal_record={},
+                                      receipt=receipt, notes=["Amount and confirmations are as you reported them."])
+        return AgentOutput(value=report, evidence=[EvidenceRef(source="You (self-reported)",
+                                                               reference=rep.get("order_reference") or "store purchase",
+                                                               description="Purchase report")],
+                           confidence=0.7)
+
+
+def intent_drift(intent: ShoppingIntent, contract: ContractTerms) -> list[str]:
+    drift = []
+    if contract.max_total != intent.max_budget:
+        drift.append(f"max total {contract.max_total} vs intent budget {intent.max_budget}")
+    if contract.currency != intent.currency:
+        drift.append(f"currency {contract.currency} vs {intent.currency}")
+    if contract.quantity != intent.quantity:
+        drift.append(f"quantity {contract.quantity} vs {intent.quantity}")
+    if contract.subscription_allowed and not intent.subscription_allowed:
+        drift.append("contract allows a subscription the shopper prohibited")
+    if (intent.warranty_requirement.min_months or 0) > (contract.warranty_min_months or 0):
+        drift.append("contract warranty requirement is weaker than requested")
+    if intent.return_requirement.free_returns and not contract.free_returns_required:
+        drift.append("contract dropped the free-returns requirement")
+    return drift
 
 
 def sum_lines(lines: list[dict]) -> Decimal:

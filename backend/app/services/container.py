@@ -18,6 +18,8 @@ from app.core.config import get_settings
 from app.database.session import SessionLocal
 from app.integrations.llm.client import build_llm
 from app.integrations.merchants.demo_merchant import DemoMerchantAdapter
+from app.integrations.merchants.router import CatalogRouter
+from app.integrations.merchants.serpapi_shopping import SerpApiShoppingAdapter
 from app.integrations.paypal.client import MockPayPalClient, PayPalGateway, PayPalSandboxClient
 
 
@@ -25,23 +27,28 @@ class Container:
     def __init__(self) -> None:
         s = get_settings()
         self.settings = s
-        self.merchant = DemoMerchantAdapter(SessionLocal)
+        # Real stores via Google Shopping when a SerpAPI key is set. The fictional demo store is only
+        # used when explicitly enabled (tests, PayPal checkout demonstration).
+        self.merchant = DemoMerchantAdapter(SessionLocal) if s.demo_catalog_enabled else None
+        self.external = (SerpApiShoppingAdapter(s.serpapi_key, SessionLocal, cache_ttl=s.serpapi_cache_seconds)
+                         if s.serpapi_key else None)
+        self.catalog = CatalogRouter(self.merchant, self.external)
         self.llm = build_llm(s)
         if s.paypal_mode == "sandbox":
             self.paypal: PayPalGateway = PayPalSandboxClient(s.paypal_client_id, s.paypal_client_secret,
                                                              s.paypal_webhook_id)
         else:
             self.paypal = MockPayPalClient(SessionLocal, s.backend_public_url, s.mock_webhook_secret)
-        m, p = self.merchant, self.paypal
+        cat, p = self.catalog, self.paypal
         self.registry = ToolRegistry({
             "llm.structured": self.llm.structured,
-            "catalog.search": m.search_products,
-            "catalog.product_details": m.get_product_details,
-            "merchant.seller_info": m.get_seller_information,
-            "merchant.terms": m.get_purchase_terms,
-            "merchant.quote_tax": m.quote_tax,
-            "merchant.create_checkout": m.create_checkout,
-            "merchant.receipt": m.get_receipt,
+            "catalog.search": cat.search,
+            "catalog.product_details": cat.product_details,
+            "merchant.seller_info": cat.seller_info,
+            "merchant.terms": cat.terms,
+            "merchant.quote_tax": cat.quote_tax,
+            "merchant.create_checkout": cat.create_checkout,
+            "merchant.receipt": cat.receipt,
             "paypal.create_order": p.create_order,
             "paypal.get_order": p.get_order,
             "paypal.capture_order": p.capture_order,

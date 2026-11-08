@@ -160,8 +160,9 @@ export function NextStep({ wf, lastMessage, busy, actions }: { wf: Workflow; las
     case "EVIDENCE_INCOMPLETE": {
       if (!wf.error && wf.evaluations.length === 0) {
         return (
-          <Banner tone="amber" icon={<Search size={22} />} title={`We couldn't find any "${wf.intent?.product_description ?? "matching products"}"`}>
-            <p>None of the supported stores returned a listing for this request. Try describing the product differently (for example "office chair" instead of a brand-only name).</p>
+          <Banner tone="amber" icon={<Search size={22} />} title={`No listings for "${wf.intent?.product_description ?? "this request"}"`}>
+            <p>{wf.blocked_reason ?? "The connected stores returned no listings for this request."}</p>
+            <p className="mt-1 text-xs text-slate-500">CHECKMATE never fills the gap with made-up products.{wf.blocked_reason?.includes("SERPAPI_KEY") ? "" : " Try describing the item differently."}</p>
             <div className="mt-3 flex flex-wrap gap-2">
               <Link href={`/?q=${encodeURIComponent(firstLine)}`} className="btn-primary"><Edit size={15} /> Edit request</Link>
               <button className="btn-ghost" disabled={busy} onClick={actions.retry}><Refresh size={15} /> Search again</button>
@@ -227,6 +228,28 @@ export function NextStep({ wf, lastMessage, busy, actions }: { wf: Workflow; las
     }
 
     case "CONTRACT_CREATED":
+      if (c?.terms.purchase_channel === "external_store") {
+        const toConfirm = (c.terms.checklist ?? []).filter((i) => !i.auto).length;
+        return !c.approved ? (
+          <Banner tone="indigo" icon={<FileText size={22} />} title="Review and approve your purchase plan">
+            <p>Best match from real stores: <b>{c.terms.product_name}</b> at <b>{c.terms.store_name}</b> for {money(c.terms.unit_price, c.terms.currency)}
+              {" "}(listed price; tax{c.terms.known_subtotal === c.terms.unit_price ? " and shipping" : ""} added at the store). Your limit: {money(c.terms.max_total, c.terms.currency)}.</p>
+            {toConfirm > 0 && <p className="mt-1">The listing doesn't show {toConfirm === 1 ? "one of your requirements" : `${toConfirm} of your requirements`}; you'll confirm {toConfirm === 1 ? "it" : "them"} on the store's page.</p>}
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button className="btn-primary" disabled={busy} onClick={actions.approve}><Check size={16} /> Approve plan v{c.version}</button>
+              <a href="#offers" className="btn-secondary">Compare other offers</a>
+            </div>
+          </Banner>
+        ) : (
+          <Banner tone="emerald" icon={<Store size={22} />} title={`Buy it at ${c.terms.store_name}, then tell us what you paid`}>
+            <p>CHECKMATE can't see inside a real store's checkout, so check the items below on the store's page before you pay, then report the purchase to reconcile it and get your passport.</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {c.terms.store_url && <a className="btn-primary" href={c.terms.store_url} target="_blank" rel="noreferrer"><Store size={16} /> Open the listing</a>}
+              <a href="#store" className="btn-secondary">Report my purchase</a>
+            </div>
+          </Banner>
+        );
+      }
       if (!c?.approved) {
         return (
           <Banner tone="indigo" icon={<FileText size={22} />} title="Review and approve your purchase contract">
@@ -353,7 +376,9 @@ const EVIDENCE_STYLE: Record<string, string> = {
   INSUFFICIENT_EVIDENCE: "bg-rose-50 text-rose-700 dark:bg-rose-950 dark:text-rose-300",
 };
 
-export function OfferCards({ evaluations, selectedId }: { evaluations: Evaluation[]; selectedId?: string }) {
+export function OfferCards({ evaluations, selectedId, onSelect, busy = false, canSwitch = false }: {
+  evaluations: Evaluation[]; selectedId?: string; onSelect?: (id: string) => void; busy?: boolean; canSwitch?: boolean;
+}) {
   const [open, setOpen] = useState<string | null>(null);
   if (!evaluations.length) return null;
   const seen = new Set<string>();
@@ -363,7 +388,7 @@ export function OfferCards({ evaluations, selectedId }: { evaluations: Evaluatio
     .sort((a, b) => Number(b.candidate.id === selectedId) - Number(a.candidate.id === selectedId) || rank[a.status] - rank[b.status]);
   const passing = rows.filter((r) => r.status === "PASS").length;
   return (
-    <Card title="Offers evaluated" icon={<Search size={15} />} right={<span className="text-xs text-slate-500">{passing} of {plural(rows.length, "offer")} qualify</span>}>
+    <Card id="offers" title="Offers evaluated" icon={<Search size={15} />} right={<span className="text-xs text-slate-500">{passing > 0 ? `${passing} of ${plural(rows.length, "offer")} fully verified` : `${rows.filter((r) => r.status !== "FAIL").length} of ${plural(rows.length, "offer")} without a failed rule`}</span>}>
       <div className="grid gap-3">
         {rows.map((e) => {
           const c = e.candidate;
@@ -374,24 +399,33 @@ export function OfferCards({ evaluations, selectedId }: { evaluations: Evaluatio
           return (
             <article key={c.id} className={`rounded-2xl border p-4 transition ${selected ? "border-indigo-300 bg-indigo-50/40 ring-2 ring-indigo-200 dark:border-indigo-800 dark:bg-indigo-950/20 dark:ring-indigo-900" : "border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"} ${e.status !== "PASS" && !selected ? "opacity-90" : ""}`}>
               <div className="flex flex-wrap items-start gap-3">
-                <span className={`grid h-12 w-12 shrink-0 place-items-center rounded-xl ${e.status === "PASS" ? "bg-gradient-to-br from-indigo-500 to-violet-500 text-white" : "bg-slate-100 text-slate-400 dark:bg-slate-800"}`}>
-                  <Package size={22} />
-                </span>
+                {c.thumbnail ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={c.thumbnail} alt="" loading="lazy" referrerPolicy="no-referrer"
+                       className="h-14 w-14 shrink-0 rounded-xl bg-white object-contain ring-1 ring-slate-200 dark:ring-slate-700" />
+                ) : (
+                  <span className={`grid h-12 w-12 shrink-0 place-items-center rounded-xl ${e.status === "PASS" ? "bg-gradient-to-br from-indigo-500 to-violet-500 text-white" : "bg-slate-100 text-slate-400 dark:bg-slate-800"}`}>
+                    <Package size={22} />
+                  </span>
+                )}
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="font-bold">{c.product_name}</h3>
                     {selected && <span className="chip bg-indigo-600 text-white"><Check size={12} strokeWidth={3} /> In your contract</span>}
-                    {c.simulated && <span className="chip bg-slate-100 text-[10px] font-semibold uppercase text-slate-500 dark:bg-slate-800" title="Generated by the controlled demo merchant for this request">Simulated listing</span>}
+                    {c.demo && <span className="chip bg-amber-50 text-[10px] font-semibold uppercase text-amber-700 dark:bg-amber-950" title="Fictional demo store, enabled for testing">Demo store (fictional)</span>}
                   </div>
                   <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
-                    <span>{c.variant ?? "—"}</span><span>·</span>
-                    <span className="flex items-center gap-1"><Store size={12} />{e.seller?.seller_name ?? c.listing_seller_name}</span>
+                    {c.variant && <><span>{c.variant}</span><span>·</span></>}
+                    <span className="flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200"><Store size={12} />{e.seller?.seller_name ?? c.listing_seller_name}</span>
+                    {c.rating != null && <span title="Product rating shown on the listing (not a rating of the store)">★ {c.rating}{c.reviews ? ` (${c.reviews.toLocaleString()})` : ""}</span>}
+                    {c.multiple_sources && <span title="Google Shopping lists this product at several stores">· more stores</span>}
                     <span className={`chip px-2 py-0.5 text-[10px] font-bold uppercase ${EVIDENCE_STYLE[lvl]}`}>{lvl.replace("_EVIDENCE", "")} evidence</span>
                   </div>
                 </div>
                 <div className="text-right">
                   <div className="text-lg font-extrabold tabular-nums">{e.cost?.total ? money(e.cost.total, e.cost.currency) : <span className="text-amber-600">Unknown</span>}</div>
-                  <div className="text-[11px] text-slate-500">{e.cost?.total ? `total · item ${money(c.price, c.currency)}` : `≥ ${money(e.cost?.known_subtotal, e.cost?.currency)} known`}</div>
+                  <div className="text-[11px] text-slate-500">{e.cost?.total ? `total · item ${money(c.price, c.currency)}` : c.external ? `listed ${money(c.price, c.currency)} + tax` : `≥ ${money(e.cost?.known_subtotal, e.cost?.currency)} known`}</div>
+                  {c.delivery_text && <div className="text-[11px] text-slate-500">{c.delivery_text}</div>}
                 </div>
                 <TriBadge value={e.status} />
               </div>
@@ -406,9 +440,16 @@ export function OfferCards({ evaluations, selectedId }: { evaluations: Evaluatio
                 ))}
               </div>
 
-              <button onClick={() => setOpen(isOpen ? null : c.id)} className="mt-3 flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-500 dark:text-indigo-400" aria-expanded={isOpen}>
-                <ChevronDown size={14} className={`transition ${isOpen ? "rotate-180" : ""}`} />{isOpen ? "Hide evidence" : "Show evidence"}
-              </button>
+              <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+                <button onClick={() => setOpen(isOpen ? null : c.id)} className="flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-500 dark:text-indigo-400" aria-expanded={isOpen}>
+                  <ChevronDown size={14} className={`transition ${isOpen ? "rotate-180" : ""}`} />{isOpen ? "Hide evidence" : "Show evidence"}
+                </button>
+                {c.external && c.product_url && <a href={c.product_url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-xs font-semibold text-slate-600 hover:text-indigo-600 dark:text-slate-300">View listing <ArrowRight size={12} /></a>}
+                {c.external && c.retrieved_at && <span className="text-[11px] text-slate-400">price as of {new Date(c.retrieved_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</span>}
+                {canSwitch && onSelect && !selected && c.external && e.status !== "FAIL" && (
+                  <button className="btn-secondary ml-auto py-1 text-xs" disabled={busy} onClick={() => onSelect(c.id)}>Use this offer</button>
+                )}
+              </div>
               {isOpen && (
                 <div className="mt-3 grid gap-4 border-t border-slate-100 pt-3 text-xs dark:border-slate-800 md:grid-cols-2">
                   <ul className="space-y-1.5">
@@ -439,7 +480,7 @@ export function OfferCards({ evaluations, selectedId }: { evaluations: Evaluatio
           );
         })}
       </div>
-      <p className="mt-3 text-xs text-slate-500">Dashed chips are advisory. Unknown information is never treated as a pass.</p>
+      <p className="mt-3 text-xs text-slate-500">Amber = the listing doesn't say, so you'll confirm it at the store. Unknown information is never treated as a pass. Dashed chips are advisory.</p>
     </Card>
   );
 }
@@ -453,20 +494,21 @@ export function ContractCard({ contract, state, busy, onApprove, onRevoke }: {
   return (
     <section id="contract" className="card animate-fade-up scroll-mt-24 overflow-hidden p-0">
       <div className="flex items-center justify-between bg-gradient-to-r from-slate-900 to-indigo-950 px-5 py-3 text-white">
-        <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest"><FileText size={15} /> Purchase contract</span>
+        <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest"><FileText size={15} /> {t.purchase_channel === "external_store" ? "Purchase plan" : "Purchase contract"}</span>
         <span className="chip bg-white/15 text-white">v{contract.version}</span>
       </div>
       <div className="p-5">
         <div className="text-lg font-bold leading-tight">{t.product_name}</div>
-        <div className="text-sm text-slate-500">{t.model} · {t.exact_variant ?? "—"} · from {t.seller_name}</div>
+        <div className="text-sm text-slate-500">{[t.model, t.exact_variant].filter(Boolean).join(" · ")}{(t.model || t.exact_variant) ? " · " : ""}from <b className="text-slate-700 dark:text-slate-200">{t.seller_name}</b></div>
         <div className="my-4 grid grid-cols-2 gap-2">
           <div className="rounded-xl bg-indigo-50 p-3 dark:bg-indigo-950/40">
             <div className="text-[11px] font-semibold uppercase text-indigo-600 dark:text-indigo-300">Maximum total</div>
             <div className="text-xl font-extrabold tabular-nums">{money(t.max_total, t.currency)}</div>
           </div>
           <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800/50">
-            <div className="text-[11px] font-semibold uppercase text-slate-500">Expected</div>
-            <div className="text-xl font-extrabold tabular-nums">{money(t.expected_total, t.currency)}</div>
+            <div className="text-[11px] font-semibold uppercase text-slate-500">{t.expected_total ? "Expected" : "Listed price"}</div>
+            <div className="text-xl font-extrabold tabular-nums">{money(t.expected_total ?? t.known_subtotal ?? t.unit_price, t.currency)}</div>
+            {!t.expected_total && <div className="text-[10px] text-slate-500">+ tax at the store</div>}
           </div>
         </div>
         <Field label="Quantity">{t.quantity}</Field>
@@ -729,3 +771,78 @@ export function AgentTimeline({ events, runs, chainOk }: { events: WfEvent[]; ru
 }
 
 export { Fragment };
+
+/* ====================================================== store purchase */
+export function StorePurchaseCard({ contract, state, busy, onReport }: {
+  contract: Contract; state: string; busy: boolean;
+  onReport: (r: { amount: string; currency: string; confirmations: Record<string, boolean>; order_reference: string }) => void;
+}) {
+  const t = contract.terms;
+  const items = (t.checklist ?? []).filter((i) => !i.auto);
+  const [answers, setAnswers] = useState<Record<string, boolean | undefined>>({});
+  const [amount, setAmount] = useState("");
+  const [ref, setRef] = useState("");
+  const answered = items.every((i) => answers[i.key] !== undefined);
+  const validAmount = /^\d+(\.\d{1,2})?$/.test(amount.trim()) && Number(amount) > 0;
+  const over = validAmount && Number(amount) > Number(t.max_total);
+  const canReport = contract.approved && state === "CONTRACT_CREATED";
+  return (
+    <Card id="store" title={`Buy at ${t.store_name}`} icon={<Store size={15} />}
+          right={<span className="chip bg-sky-50 text-sky-700 ring-1 ring-inset ring-sky-600/20 dark:bg-sky-950 dark:text-sky-300">Real store</span>}>
+      <p className="text-sm text-slate-600 dark:text-slate-300">
+        Listed at <b>{money(t.unit_price, t.currency)}</b>{t.price_as_of && <> on {new Date(t.price_as_of).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</>} (Google Shopping).
+        Prices change; check the store's final total before you pay.
+      </p>
+      {t.store_url && <a className="btn-primary mt-3 w-full" href={t.store_url} target="_blank" rel="noreferrer"><Store size={16} /> Open the listing</a>}
+
+      <div className="mt-5">
+        <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-500">Check these on the store's page</div>
+        <ul className="space-y-2">
+          <li className="rounded-xl bg-slate-50 p-3 text-sm dark:bg-slate-800/50">
+            <div className="font-semibold">Final total</div>
+            <div className="text-xs text-slate-500">At most {money(t.max_total, t.currency)} including tax and shipping. Checked automatically from the amount you report.</div>
+          </li>
+          {items.map((i) => (
+            <li key={i.key} className="rounded-xl bg-slate-50 p-3 text-sm dark:bg-slate-800/50">
+              <div className="font-semibold">{i.label}</div>
+              <div className="text-xs text-slate-500">{i.requirement}</div>
+              <div className="mt-2 flex gap-2" role="radiogroup" aria-label={i.label}>
+                {[{ v: true, l: "Confirmed" }, { v: false, l: "Not met" }].map((o) => (
+                  <button key={String(o.v)} role="radio" aria-checked={answers[i.key] === o.v} disabled={!canReport}
+                          onClick={() => setAnswers({ ...answers, [i.key]: o.v })}
+                          className={`rounded-lg px-3 py-1 text-xs font-semibold ring-1 ring-inset transition disabled:opacity-50 ${answers[i.key] === o.v
+                            ? (o.v ? "bg-emerald-500 text-white ring-emerald-500" : "bg-rose-500 text-white ring-rose-500")
+                            : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-100 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-700"}`}>
+                    {o.l}
+                  </button>
+                ))}
+              </div>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <div className="mt-5 border-t border-slate-100 pt-4 dark:border-slate-800">
+        <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-500">After you buy</div>
+        <div className="grid grid-cols-3 gap-2">
+          <label className="col-span-2 text-xs text-slate-500">Amount you paid ({t.currency})
+            <input className="input mt-1" inputMode="decimal" placeholder="e.g. 97.50" value={amount} disabled={!canReport}
+                   onChange={(e) => setAmount(e.target.value)} />
+          </label>
+          <label className="text-xs text-slate-500">Order no. (optional)
+            <input className="input mt-1" value={ref} maxLength={100} disabled={!canReport} onChange={(e) => setRef(e.target.value)} />
+          </label>
+        </div>
+        {over && <p className="mt-2 text-xs font-semibold text-rose-600">That's above your approved maximum; it will be recorded as a discrepancy.</p>}
+        <button className="btn-primary mt-3 w-full" disabled={!canReport || busy || !validAmount || !answered}
+                onClick={() => onReport({ amount: amount.trim(), currency: t.currency, order_reference: ref.trim(),
+                  confirmations: Object.fromEntries(Object.entries(answers).filter(([, v]) => v !== undefined)) as Record<string, boolean> })}>
+          <Check size={16} /> Record my purchase
+        </button>
+        {!contract.approved && <p className="mt-2 text-xs text-slate-500">Approve the purchase plan first.</p>}
+        {contract.approved && !answered && <p className="mt-2 text-xs text-slate-500">Answer each checklist item to continue.</p>}
+        <p className="mt-3 flex gap-1.5 text-[11px] text-slate-400"><ShieldCheck size={13} className="shrink-0" />CHECKMATE doesn't take payment for real stores. Your report is reconciled against the plan and recorded as self-reported in the passport.</p>
+      </div>
+    </Card>
+  );
+}

@@ -90,7 +90,15 @@ class ProductCandidate(BaseModel):
     description: str  # merchant-provided, UNTRUSTED
     match_score: int
     gaps: list[str] = Field(default_factory=list)
-    simulated: bool = False
+    unverified_specs: list[str] = Field(default_factory=list)
+    external: bool = False            # real store listing (Google Shopping)
+    demo: bool = False                # fictional demo store listing
+    thumbnail: str | None = None
+    rating: float | None = None       # PRODUCT rating shown on the listing (not a seller rating)
+    reviews: int | None = None
+    multiple_sources: bool = False
+    delivery_text: str | None = None
+    retrieved_at: str | None = None
     evidence_references: list[EvidenceRef] = Field(default_factory=list)
 
 
@@ -191,6 +199,12 @@ class ContractTerms(BaseModel):
     max_delivery_days: int | None
     source_reference: str
     expires_at: datetime
+    purchase_channel: str = "demo_checkout"  # demo_checkout | external_store
+    store_name: str | None = None
+    store_url: str | None = None
+    price_as_of: str | None = None
+    known_subtotal: Money | None = None
+    checklist: list[dict] = Field(default_factory=list)
 
 
 # -------------------------------------------------------------- checkout ----
@@ -258,3 +272,4 @@ class MonitoringReport(BaseModel):
     changes: list[str]
     material_change: bool
     current_price: Money | None = None
+    note: str | None = None

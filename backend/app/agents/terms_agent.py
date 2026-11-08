@@ -60,7 +60,7 @@ def extract_from_text(text: str) -> dict:
         out["return_window_days"] = int(r.group(1))
     elif re.search(r"no returns|final sale|non-returnable", low):
         out["return_window_days"] = 0
-    if re.search(r"free returns?", low):
+    if re.search(r"free\s+(?:\d+[\s-]*day\s+)?returns?", low):
         out["free_returns"] = True
     elif re.search(r"restocking fee|buyer pays return|return shipping is paid by the buyer", low):
         out["free_returns"] = False

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api, type SystemInfo } from "@/lib/api";
-import { Bot, Lock } from "@/components/icons";
+import { Bot, Lock, Store } from "@/components/icons";
 
 export default function Header() {
   const [sys, setSys] = useState<SystemInfo | null | undefined>(undefined);
@@ -38,12 +38,18 @@ export default function Header() {
           )}
           {sys && (
             <>
-              <span className={`chip ring-1 ring-inset ${sys.paypal_environment === "sandbox"
+              <span className={`chip ring-1 ring-inset ${sys.real_stores_connected
+                ? "bg-emerald-50 text-emerald-700 ring-emerald-600/20 dark:bg-emerald-950 dark:text-emerald-300"
+                : "bg-rose-50 text-rose-700 ring-rose-600/20 dark:bg-rose-950 dark:text-rose-300"}`}
+                    title={sys.product_sources.join(" · ") || "No product source connected"}>
+                <Store size={12} /> {sys.real_stores_connected ? "Real stores · Google Shopping" : "No store source connected"}
+              </span>
+              {sys.demo_store_enabled && <span className={`chip ring-1 ring-inset ${sys.paypal_environment === "sandbox"
                 ? "bg-sky-50 text-sky-700 ring-sky-600/20 dark:bg-sky-950 dark:text-sky-300"
                 : "bg-amber-50 text-amber-800 ring-amber-600/20 dark:bg-amber-950 dark:text-amber-300"}`}
                     title={sys.paypal_environment === "sandbox" ? "Real PayPal Sandbox" : "Simulated PayPal — no money moves"}>
-                <Lock size={12} /> PayPal {sys.paypal_environment === "sandbox" ? "Sandbox" : "Simulated"}
-              </span>
+                <Lock size={12} /> Demo store · PayPal {sys.paypal_environment === "sandbox" ? "Sandbox" : "Simulated"}
+              </span>}
               <span className="chip bg-slate-100 text-slate-700 ring-1 ring-inset ring-slate-500/10 dark:bg-slate-800 dark:text-slate-300"
                     title="Language model used by the agents (rules always enforce the final decision)">
                 <Bot size={12} /> {llm}

@@ -1,4 +1,4 @@
-"""Any product request, monitor->assisted upgrade, payment sweeper, approval-link secret,
+"""Monitor->assisted upgrade, payment sweeper, approval-link secret,
 rate limiting by identity, and forward migrations."""
 from datetime import timedelta
 
@@ -13,43 +13,6 @@ from app.database.session import SessionLocal, engine, ensure_columns
 from app.orchestrator import service as svc
 
 from tests.conftest import A, approve, create_order, get_wf, ready_to_pay, start, verify
-
-
-@pytest.mark.parametrize("text,phrase", [
-    ("Find a chair under $110 that comes from a reliable seller.", "chair"),
-    ("office chair between $50 and $120 with free returns", "office chair"),
-    ("a desk lamp around $40, no subscription", "desk lamp"),
-    ("running shoes, 100 bucks, at least a one-year warranty", "running shoes"),
-])
-def test_any_product_gets_a_contract(client, text, phrase):
-    wf = start(client, text)
-    assert wf["state"] == "CONTRACT_CREATED", wf["blocked_reason"]
-    assert wf["intent"]["product_description"] == phrase
-    statuses = {e["candidate"]["id"].rsplit("-", 1)[-1]: e["status"] for e in wf["evaluations"]}
-    assert all(e["candidate"]["simulated"] for e in wf["evaluations"])
-    assert statuses["2"] == "FAIL"   # hidden subscription is still caught
-    assert statuses["3"] != "PASS"   # undisclosed terms are never a pass
-    assert wf["contract"]["terms"]["max_total"] == wf["intent"]["max_budget"]
-
-
-def test_generated_offer_can_be_bought_end_to_end(client, paypal):
-    wf = start(client, "Find a chair under $110 that comes from a reliable seller.")
-    approve(client, wf)
-    assert verify(client, wf["contract"]["id"]).json()["status"] == "PASS"
-    order = create_order(client, wf["contract"]["id"]).json()
-    paypal.buyer_decision(order["paypal_order_id"], True)
-    client.post(f"/api/v1/payments/{order['id']}/capture", headers=A)
-    done = get_wf(client, wf["id"])
-    assert done["state"] == "COMPLETED" and done["passport_id"]
-
-
-def test_generated_listing_survives_restart(client):
-    from app.integrations.merchants.demo_merchant import generate_listing
-
-    wf = start(client, "Find a chair under $110 that comes from a reliable seller.")
-    pid = wf["contract"]["terms"]["product_id"]
-    regenerated = generate_listing(pid)
-    assert regenerated["price"] == wf["contract"]["terms"]["unit_price"]
 
 
 def test_monitor_only_can_switch_to_assisted_and_pay(client):

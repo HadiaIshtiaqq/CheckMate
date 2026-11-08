@@ -63,7 +63,8 @@ export interface Charge {
 
 export interface Evaluation {
   candidate: {
-    simulated?: boolean;
+    external?: boolean; demo?: boolean; thumbnail?: string | null; rating?: number | null; reviews?: number | null;
+    multiple_sources?: boolean; delivery_text?: string | null; retrieved_at?: string | null; unverified_specs?: string[];
     id: string; product_name: string; brand: string; model: string; variant: string | null; price: string;
     currency: string; seller_id: string; listing_seller_name: string; product_url: string; gaps: string[];
     match_score: number;
@@ -87,6 +88,9 @@ export interface ContractTerms {
   return_required: boolean; free_returns_required: boolean; min_return_days: number | null;
   subscription_allowed: boolean; approved_addons: string[]; seller_min_evidence: string;
   max_delivery_days: number | null; source_reference: string; expires_at: string;
+  purchase_channel?: "demo_checkout" | "external_store"; store_name?: string | null; store_url?: string | null;
+  price_as_of?: string | null; known_subtotal?: string | null;
+  checklist?: { key: string; label: string; requirement: string; why: string; auto?: boolean }[];
 }
 
 export interface Contract {
@@ -155,4 +159,5 @@ export interface WfEvent {
 export interface SystemInfo {
   paypal_environment: string; llm_enabled: boolean; llm_provider: string; llm_model: string | null;
   demo_controls_enabled: boolean; scenarios: Record<string, string>;
+  product_sources: string[]; real_stores_connected: boolean; demo_store_enabled: boolean;
 }

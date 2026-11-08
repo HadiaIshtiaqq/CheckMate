@@ -23,6 +23,8 @@ class SellerTrustAgent(BaseAgent):
                     missing_evidence=["seller registry record"], summary="No seller record found."),
                 missing=["seller registry record"], confidence=0.2)
         src = info.get("source", "seller registry")
+        if "established_retailer" in info:
+            return self._listing_store(candidate, info, src)
 
         def sig(name: str, value) -> SellerSignal:
             return SellerSignal(name=name, value=None if value is None else str(value),
@@ -71,3 +73,39 @@ class SellerTrustAgent(BaseAgent):
                                   description="Seller registry record")],
             missing=missing, confidence=round(1 - len(missing) / len(signals), 2),
         )
+
+    @staticmethod
+    def _listing_store(candidate: ProductCandidate, info: dict, src: str) -> AgentOutput:
+        """Real store from a shopping listing: the store name is the only evidence."""
+        est, mkt = bool(info.get("established_retailer")), bool(info.get("marketplace_seller"))
+        name = info.get("name") or ""
+        signals = [
+            SellerSignal(name="store_name", value=name or None, status="PRESENT" if name else "MISSING", source=src),
+            SellerSignal(name="established_retailer", value="yes" if est else "no", status="PRESENT", source=src),
+            SellerSignal(name="marketplace_third_party_seller", value="yes" if mkt else "no", status="PRESENT",
+                         source=src),
+            SellerSignal(name="identity_verified", value=None, status="MISSING", source=src),
+            SellerSignal(name="seller_rating", value=None, status="MISSING", source=src),
+            SellerSignal(name="dispute_rate_pct", value=None, status="MISSING", source=src),
+        ]
+        missing = [x.name for x in signals if x.status == "MISSING"]
+        if est:
+            level = EvidenceLevel.STRONG
+            summary = (f"{name} is an established retailer (store name matches CHECKMATE's list). The listing "
+                       f"carries no identity, seller-rating or dispute data.")
+        elif name and name.lower() != "unknown store":
+            level = EvidenceLevel.LIMITED
+            summary = ((f"{name} looks like a marketplace or third-party seller. " if mkt else
+                        f"{name} is not on CHECKMATE's list of established retailers. ")
+                       + "The listing carries no identity, seller-rating or dispute data.")
+        else:
+            level = EvidenceLevel.INSUFFICIENT
+            summary = "The listing doesn't name the store."
+        consistent = Tri.PASS if candidate.listing_seller_name.casefold() == name.casefold() else Tri.UNKNOWN
+        return AgentOutput(
+            value=SellerAssessment(seller_id=candidate.seller_id, seller_name=name or None,
+                                   marketplace=info.get("marketplace"), evidence_level=level, signals=signals,
+                                   listing_consistent=consistent, missing_evidence=missing, summary=summary),
+            evidence=[EvidenceRef(source=src, reference=candidate.product_url or candidate.id,
+                                  description="Store named on the listing")],
+            missing=missing, confidence=0.4)

@@ -67,6 +67,9 @@ class Settings:
     gemini_max_concurrency: int = 2
     llm_timeout_seconds: float = 20.0
     demo_controls_enabled: bool = False
+    serpapi_key: str | None = None
+    serpapi_cache_seconds: float = 3600.0
+    demo_catalog_enabled: bool = False
     jobs_enabled: bool = True
     jobs_interval_seconds: float = 60.0
 
@@ -77,7 +80,8 @@ class Settings:
     def secret_values(self) -> list[str]:
         """Everything that must never appear in logs or responses."""
         return [v for v in (self.paypal_client_secret, self.openai_api_key, self.authorization_secret,
-                            self.mock_webhook_secret, *self.gemini_api_keys, *self.demo_users.keys()) if v]
+                            self.mock_webhook_secret, self.serpapi_key, *self.gemini_api_keys,
+                            *self.demo_users.keys()) if v]
 
     def problems(self) -> list[str]:
         out = []
@@ -87,6 +91,8 @@ class Settings:
             out.append("MOCK_WEBHOOK_SECRET is a default value")
         if set(self.demo_users) & {"dev-token-alice", "dev-token-bob"}:
             out.append("CHECKMATE_DEMO_USERS uses the public default tokens")
+        if not self.serpapi_key and not self.demo_catalog_enabled:
+            out.append("No product source: set SERPAPI_KEY to search real stores via Google Shopping")
         if self.paypal_mode == "sandbox" and not self.paypal_webhook_id:
             out.append("PAYPAL_WEBHOOK_ID is not set; all PayPal webhooks will be rejected")
         return out
@@ -133,6 +139,9 @@ def get_settings() -> Settings:
         llm_timeout_seconds=float(_env("LLM_TIMEOUT_SECONDS", "15")),
         demo_controls_enabled=(_env("DEMO_CONTROLS_ENABLED", "false") or "false").lower() == "true",
         jobs_enabled=(_env("JOBS_ENABLED", "true") or "true").lower() == "true",
+        serpapi_key=_env("SERPAPI_KEY") or _env("SERPAPI_API_KEY"),
+        serpapi_cache_seconds=float(_env("SERPAPI_CACHE_SECONDS", "3600")),
+        demo_catalog_enabled=(_env("DEMO_CATALOG_ENABLED", "false") or "false").lower() == "true",
         jobs_interval_seconds=float(_env("JOBS_INTERVAL_SECONDS", "60")),
     )
     if not settings.demo_users:

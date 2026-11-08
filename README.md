@@ -26,6 +26,14 @@ npm install
 npm run dev                     # http://localhost:3000
 ```
 
+**Real products:** CHECKMATE searches real stores through Google Shopping (via SerpAPI) and never invents products. Get a free key at https://serpapi.com/users/sign_up (250 searches a month) and set `SERPAPI_KEY` in `.env` at the repo root. Without a key, the app says no store source is connected; it does not show placeholder products.
+
+How real-store offers work:
+- **What CHECKMATE uses:** only what the listing states (title, store, price, rating, delivery, listing notes such as "Free 30-day returns").
+- **What stays unknown:** warranty, return policy and tax usually aren't on a listing. They stay unknown and become a checklist you confirm on the store's page.
+- **Seller evidence:** for real stores this is the store name only, matched against a list of established retailers. Marketplace sellers (e.g. "eBay - seller") get limited evidence.
+- **Buying:** CHECKMATE can't see inside a real store's checkout or take payment for it. You approve a purchase plan, buy on the store's site, then report what you paid. The report is reconciled against the plan, and the passport labels it as self-reported.
+
 With no `.env`, CHECKMATE runs with:
 
 - **Simulated PayPal**: a local, clearly labelled stand-in for the PayPal Orders v2 flow, including a hosted approval page, `PayPal-Request-Id` idempotency and `ORDER_NOT_APPROVED` errors. No money moves.
@@ -115,8 +123,9 @@ The tests cover Testing Document sections 5.2–5.7: the cost and intent tables,
 - **Background execution** uses FastAPI background tasks and threads, not Redis/Celery. The agent and orchestrator boundaries are designed so a queue can be added without changing them.
 - **Rate limiting** is in-process (per API instance).
 - **Products, sellers and receipts** come from a controlled, fictional demo merchant. CHECKMATE does not claim it can inspect arbitrary retailers' checkouts.
+- **Coverage:** "all stores" means Google Shopping's index: thousands of retailers, but not every website. Each search uses one SerpAPI credit; identical searches are cached for an hour.
 - **Channel3** is a placeholder adapter, not an integration.
-- **Any product can be requested.** Headphones, laptops, keyboards and coffee makers come from a curated catalogue. For anything else (a chair, a desk lamp, running shoes) the controlled demo merchant generates five *simulated* listings anchored to your budget. These are deliberately mixed: one good fit, one over budget, one with a hidden subscription, one with undisclosed terms, and one with a short warranty. They are labelled "Simulated listing" in the UI.
+- **The fictional demo store** (`DEMO_CATALOG_ENABLED=true`) exists for the test suite and for demonstrating the inspected-checkout + PayPal flow. It is off by default and labelled "Demo store (fictional)" whenever it's on.
 - **Just watch mode** keeps payment off. The Monitoring Agent re-checks the offer every `JOBS_INTERVAL_SECONDS`, and you can switch the workflow to **Buy it** at any time without losing your safeguards.
 - **Single-process safeguards.** Per-user request serialisation, the payment sweeper and the rate limiter run inside one API process. Multiple instances would need row locks and a shared store such as Redis.
 - **Schema changes** that only add columns are applied automatically at startup. Renames and type changes need Alembic.

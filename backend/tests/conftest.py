@@ -16,6 +16,8 @@ os.environ.update(
     LLM_PROVIDER="auto",
     APP_ENV="development",
     JOBS_ENABLED="false",
+    DEMO_CATALOG_ENABLED="true",
+    SERPAPI_KEY="",
     CHECKMATE_DEMO_USERS="alice:tok-alice,bob:tok-bob",
     RATE_LIMIT_PER_MINUTE="1000000",
     FRONTEND_URL="http://frontend.test",

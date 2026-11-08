@@ -33,7 +33,7 @@ def checklist_for(ev: CandidateEvaluation, intent: ShoppingIntent) -> list[dict]
 
 
 def build_contract_terms(intent: ShoppingIntent, ev: CandidateEvaluation, workflow_id: str,
-                         expires_at: datetime, unit_price=None) -> ContractTerms:
+                         expires_at: datetime, unit_price=None, overrides: list[str] | None = None) -> ContractTerms:
     c = ev.candidate
     price = unit_price if unit_price is not None else c.price
     expected = ev.cost.total if ev.cost and ev.cost.is_complete else None
@@ -72,6 +72,7 @@ def build_contract_terms(intent: ShoppingIntent, ev: CandidateEvaluation, workfl
         price_as_of=c.retrieved_at if external else None,
         known_subtotal=ev.cost.known_subtotal if ev.cost else None,
         checklist=checklist_for(ev, intent) if external else [],
+        overridden_rules=list(overrides or []),
     )
 
 
@@ -88,7 +89,16 @@ def rank_store_plans(evaluations: list[CandidateEvaluation]) -> list[CandidateEv
     def unknowns(e: CandidateEvaluation) -> int:
         return sum(1 for c in e.conditions if c.mandatory and c.result == Tri.UNKNOWN)
 
-    return sorted(ok, key=lambda e: (unknowns(e), e.cost.known_subtotal, -(e.candidate.rating or 0)))
+    def trust(e: CandidateEvaluation) -> int:
+        level = e.seller.evidence_level.value if e.seller else ""
+        return {"STRONG_EVIDENCE": 0, "LIMITED_EVIDENCE": 1}.get(level, 2)
+
+    def popularity(e: CandidateEvaluation) -> float:
+        import math
+
+        return (e.candidate.rating or 0) * math.log10(1 + (e.candidate.reviews or 0))
+
+    return sorted(ok, key=lambda e: (trust(e), unknowns(e), -round(popularity(e), 1), e.cost.known_subtotal))
 
 
 class ContractAgent(BaseAgent):

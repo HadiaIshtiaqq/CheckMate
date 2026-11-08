@@ -49,6 +49,9 @@ def evaluate_candidate(
     cost: CostAssessment | None,
 ) -> list[ConditionResult]:
     out: list[ConditionResult] = []
+    if cand.relevance_issues:
+        out.append(_c("product_type", "Right product", intent.product_description, "; ".join(cand.relevance_issues), F,
+                      "Probably not what you asked for: " + "; ".join(cand.relevance_issues) + "."))
     wanted = ", ".join(f"{k}={v}" for k, v in intent.specifications.items()) or "any"
     if intent.preferred_variant:
         wanted += f", colour={intent.preferred_variant}"

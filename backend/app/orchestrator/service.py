@@ -636,9 +636,10 @@ def revise_workflow(db: Session, user_id: str, workflow_id: str, *, max_budget: 
     return wf
 
 
-def select_alternative(db: Session, user_id: str, workflow_id: str, product_id: str) -> PurchaseContract:
+def select_alternative(db: Session, user_id: str, workflow_id: str, product_id: str,
+                       override: bool = False) -> PurchaseContract:
     wf = owned_workflow(db, user_id, workflow_id)
-    if wf.state not in CONTRACT_STATES:
+    if wf.state not in CONTRACT_STATES and wf.state != WS.EVIDENCE_INCOMPLETE.value:
         raise Conflict(f"Cannot switch offers while workflow is {wf.state}")
     alt = next((a for a in (wf.alternatives or []) if a["product_id"] == product_id), None)
     ev_json = alt["evaluation"] if alt else next(
@@ -646,12 +647,29 @@ def select_alternative(db: Session, user_id: str, workflow_id: str, product_id: 
     if not ev_json:
         raise NotFound("Offer not found")
     ev = CandidateEvaluation.model_validate(ev_json)
-    if ev.status == Tri.FAIL or (ev.status == Tri.UNKNOWN and not ev.candidate.external):
-        raise Conflict("That offer doesn't meet your requirements.")
+    failed = [f"{c.label}: {c.reason}" for c in ev.conditions if c.mandatory and c.result == Tri.FAIL]
+    if not ev.candidate.external and ev.status != Tri.PASS:
+        raise Conflict("The demo store's checkout is enforced against your rules; only fully passing offers can "
+                       "be chosen there.")
+    if failed and not override:
+        raise Conflict({"message": "This offer breaks some of your rules. Confirm to choose it anyway.",
+                        "reasons": failed})
     intent = ShoppingIntent.model_validate(wf.intent)
-    row = db.get(PurchaseContract, wf.current_contract_id)
-    new_terms = build_contract_terms(intent, ev, wf.id, utcnow() + _ttl())
-    revise_contract(db, wf, row, new_terms, f"You selected alternative offer {ev.candidate.product_name}")
+    row = db.get(PurchaseContract, wf.current_contract_id) if wf.current_contract_id else None
+    new_terms = build_contract_terms(intent, ev, wf.id, utcnow() + _ttl(), overrides=failed)
+    if failed and new_terms.max_total is not None and ev.cost and ev.cost.known_subtotal is not None \
+            and ev.cost.known_subtotal > new_terms.max_total:
+        # Choosing an offer above budget raises this plan's limit to its listed cost; recorded as an override.
+        new_terms = new_terms.model_copy(update={"max_total": ev.cost.known_subtotal})
+    reason = f"You chose {ev.candidate.product_name}" + (
+        f", overriding {len(failed)} rule(s)" if failed else "")
+    if row is None:  # nothing qualified automatically: your choice creates the plan
+        row = create_contract(db, wf, new_terms)
+    else:
+        revise_contract(db, wf, row, new_terms, reason)
+    if failed:
+        emit(db, wf, "contract.rules_overridden", "You chose this offer despite: " + "; ".join(failed),
+             payload={"overridden": failed})
     if alt:
         wf.evaluations = (wf.evaluations or []) + [alt["evaluation"]]
     wf.alternatives = []

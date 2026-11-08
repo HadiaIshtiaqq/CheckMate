@@ -34,19 +34,19 @@ export default function LoginPage() {
     <div className="mx-auto grid max-w-4xl items-center gap-8 py-8 md:grid-cols-2">
       <div className="hidden md:block">
         <h1 className="text-3xl font-extrabold leading-tight tracking-tight">
-          Your shopping team,<br /><span className="bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent">your rules.</span>
+          Your shopping team,<br /><span className="bg-gradient-to-r from-brand-600 to-plum-600 bg-clip-text text-transparent">your rules.</span>
         </h1>
         <ul className="mt-6 space-y-3 text-sm text-slate-600 dark:text-slate-300">
-          <li className="flex gap-2"><ShieldCheck size={18} className="shrink-0 text-indigo-600" />Searches real stores and checks every offer against your rules.</li>
-          <li className="flex gap-2"><ShieldCheck size={18} className="shrink-0 text-indigo-600" />Never invents products; anything a listing doesn't show stays unknown.</li>
-          <li className="flex gap-2"><ShieldCheck size={18} className="shrink-0 text-indigo-600" />Signed purchase plans and a tamper-evident passport for every purchase.</li>
+          <li className="flex gap-2"><ShieldCheck size={18} className="shrink-0 text-brand-600" />Searches real stores and checks every offer against your rules.</li>
+          <li className="flex gap-2"><ShieldCheck size={18} className="shrink-0 text-brand-600" />Never invents products; anything a listing doesn't show stays unknown.</li>
+          <li className="flex gap-2"><ShieldCheck size={18} className="shrink-0 text-brand-600" />Signed purchase plans and a tamper-evident passport for every purchase.</li>
         </ul>
       </div>
       <form onSubmit={submit} className="card space-y-4 p-6">
         <div className="flex rounded-xl bg-slate-100 p-1 text-sm font-semibold dark:bg-slate-800" role="tablist">
           {(["login", "register"] as const).map((m) => (
             <button key={m} type="button" role="tab" aria-selected={mode === m} onClick={() => { setMode(m); setError(null); }}
-                    className={`flex-1 rounded-lg py-2 transition ${mode === m ? "bg-white text-indigo-700 shadow-sm dark:bg-slate-700 dark:text-white" : "text-slate-500"}`}>
+                    className={`flex-1 rounded-lg py-2 transition ${mode === m ? "bg-white text-brand-700 shadow-sm dark:bg-slate-700 dark:text-white" : "text-slate-500"}`}>
               {m === "login" ? "Sign in" : "Create account"}
             </button>
           ))}

@@ -141,11 +141,11 @@ export default function WorkflowPage({ params }: { params: { id: string } }) {
       {/* --------------------------------------------------------- header */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <Link href="/" className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-500 dark:text-indigo-400"><ArrowLeft size={14} /> Dashboard</Link>
+          <Link href="/" className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-500 dark:text-brand-400"><ArrowLeft size={14} /> Dashboard</Link>
           <h1 className="mt-2 text-xl font-extrabold leading-snug tracking-tight sm:text-2xl">{wf.request.split("\n")[0].replace(/ \[revised:.*\]$/, "")}</h1>
           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
             <StateBadge state={wf.state} />
-            {/\[revised: (.*)\]$/.test(wf.request) && <span className="chip bg-violet-50 text-violet-700 ring-1 ring-inset ring-violet-600/20 dark:bg-violet-950 dark:text-violet-300">Revised: {wf.request.match(/\[revised: (.*)\]$/)?.[1]}</span>}
+            {/\[revised: (.*)\]$/.test(wf.request) && <span className="chip bg-plum-50 text-plum-700 ring-1 ring-inset ring-plum-600/20 dark:bg-plum-950 dark:text-plum-300">Revised: {wf.request.match(/\[revised: (.*)\]$/)?.[1]}</span>}
             {wf.autonomy_mode === "MONITORING_ONLY" && <span className="chip bg-slate-100 dark:bg-slate-800"><Eye size={12} /> Watching only</span>}
             <span>Started {timeAgo(wf.created_at)}</span>
             <span className="mono text-slate-400" title="Workflow ID">{wf.id}</span>
@@ -182,8 +182,12 @@ export default function WorkflowPage({ params }: { params: { id: string } }) {
                               onVerify={(s) => act(() => post(`/api/v1/contracts/${contract.id}/verify`, { scenario: s }))} />
           )}
           <OfferCards evaluations={wf.evaluations} selectedId={contract?.terms.product_id} busy={busy}
-                      canSwitch={["CONTRACT_CREATED"].includes(wf.state)}
-                      onSelect={(pid) => act(() => post(`/api/v1/workflows/${id}/alternatives/${pid}/select`), "Plan updated to the offer you chose. Review and approve it.")} />
+                      canSwitch={["CONTRACT_CREATED", "EVIDENCE_INCOMPLETE"].includes(wf.state) && wf.autonomy_mode !== "MONITORING_ONLY"}
+                      onSelect={(pid, broken) => {
+                        if (broken.length && !window.confirm(`This offer breaks ${broken.length === 1 ? "one of your rules" : `${broken.length} of your rules`}:\n\n• ${broken.join("\n• ")}\n\nChoose it anyway? The override will be recorded in your plan and passport.`)) return;
+                        act(() => post(`/api/v1/workflows/${id}/alternatives/${pid}/select${broken.length ? "?override=true" : ""}`),
+                            "Plan updated to the offer you chose. Review and approve it.");
+                      }} />
         </div>
         <div className="space-y-5">
           {contract && (

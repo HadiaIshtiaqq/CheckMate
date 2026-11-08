@@ -167,9 +167,9 @@ def monitor(workflow_id: str, user: User = Depends(serialized_user), db: Session
 
 
 @router.post("/workflows/{workflow_id}/alternatives/{product_id}/select")
-def select_alternative(workflow_id: str, product_id: str, user: User = Depends(serialized_user),
-                       db: Session = Depends(get_db)):
-    return contract_view(db, svc.select_alternative(db, user.id, workflow_id, product_id))
+def select_alternative(workflow_id: str, product_id: str, override: bool = Query(False),
+                       user: User = Depends(serialized_user), db: Session = Depends(get_db)):
+    return contract_view(db, svc.select_alternative(db, user.id, workflow_id, product_id, override=override))
 
 
 # ---------------------------------------------------------------- products ---

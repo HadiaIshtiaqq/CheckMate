@@ -44,7 +44,7 @@ export default function MandatesPage() {
 
   return (
     <div className="space-y-5">
-      <Link href="/" className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600"><ArrowLeft size={14} /> Dashboard</Link>
+      <Link href="/" className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600"><ArrowLeft size={14} /> Dashboard</Link>
       <div>
         <h1 className="text-2xl font-extrabold tracking-tight">Purchasing mandates</h1>
         <p className="mt-1 max-w-2xl text-sm text-slate-500">

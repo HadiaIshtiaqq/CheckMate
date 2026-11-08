@@ -15,6 +15,21 @@ from app.schemas.common import AgentEnvelope, EvidenceRef
 log = logging.getLogger("checkmate.agents")
 
 
+def safe_error(e: Exception) -> str:
+    """A short, user-safe description. Full details go to the server log only."""
+    try:
+        from sqlalchemy.exc import SQLAlchemyError
+
+        if isinstance(e, SQLAlchemyError):
+            return "Internal storage error (details are in the server log)."
+    except ImportError:  # pragma: no cover
+        pass
+    msg = " ".join(str(e).split())
+    if e.__class__.__name__ == "ProductSourceError":
+        return f"ProductSourceError: {msg[:240]}"
+    return f"{e.__class__.__name__}: {msg[:160]}"
+
+
 class ToolPermissionError(PermissionError):
     pass
 
@@ -99,7 +114,7 @@ class BaseAgent:
             log.exception("agent %s failed", self.agent_id)
             value = None
             env = AgentEnvelope(workflow_id=workflow_id, agent_id=self.agent_id, timestamp=utcnow(),
-                                status="ERROR", subject=subject, error=f"{e.__class__.__name__}: {e}",
+                                status="ERROR", subject=subject, error=safe_error(e),
                                 missing_information=["agent output unavailable"])
         return AgentRunResult(envelope=env, value=value, started_at=started, finished_at=utcnow(),
                               duration_ms=int((time.perf_counter() - t0) * 1000))

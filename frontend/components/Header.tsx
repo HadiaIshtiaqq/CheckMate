@@ -32,13 +32,13 @@ export default function Header() {
     <header className="sticky top-0 z-30 border-b border-slate-200/70 bg-white/75 backdrop-blur-xl dark:border-slate-800 dark:bg-slate-950/75">
       <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3">
         <Link href="/" className="group flex items-center gap-3">
-          <span className="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 text-white shadow-lg shadow-indigo-500/30 transition group-hover:scale-105">
+          <span className="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-brand-600 to-plum-700 text-white shadow-lg shadow-brand-500/30 transition group-hover:scale-105">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M5 12.5 10 17 19 7" />
             </svg>
           </span>
           <span>
-            <span className="block text-lg font-extrabold tracking-tight">CHECK<span className="bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent">MATE</span></span>
+            <span className="block text-lg font-extrabold tracking-tight">CHECK<span className="bg-gradient-to-r from-brand-600 to-plum-600 bg-clip-text text-transparent">MATE</span></span>
             <span className="hidden text-[11px] text-slate-500 sm:block">Your AI shopping team. Your rules. Your money protected.</span>
           </span>
         </Link>

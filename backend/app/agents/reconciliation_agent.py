@@ -173,7 +173,7 @@ class ReconciliationAgent(BaseAgent):
             else:
                 check(f"confirm_{item['key']}", item["label"], item["requirement"], "not confirmed", U,
                       "Not confirmed.")
-        drift = intent_drift(intent, contract)
+        drift = [] if contract.overridden_rules else intent_drift(intent, contract)
         check("intent_constraints", "Plan matches original intent", f"budget {intent.max_budget} {intent.currency}",
               f"max {contract.max_total} {contract.currency}", F if drift else P,
               "; ".join(drift) or "Your original constraints are preserved.")
@@ -186,8 +186,11 @@ class ReconciliationAgent(BaseAgent):
                    "store": contract.store_name, "total": str(amount), "currency": cur,
                    "order_reference": rep.get("order_reference"), "reported_at": utcnow().isoformat(),
                    "store_url": contract.store_url, "file": rep.get("receipt_file")}
+        notes = ["Amount and confirmations are as you reported them."]
+        if contract.overridden_rules:
+            notes.append("You chose this offer while overriding: " + "; ".join(contract.overridden_rules))
         report = ReconciliationReport(status=status, checks=checks, discrepancies=discrepancies, paypal_record={},
-                                      receipt=receipt, notes=["Amount and confirmations are as you reported them."])
+                                      receipt=receipt, notes=notes)
         return AgentOutput(value=report, evidence=[EvidenceRef(source="You (self-reported)",
                                                                reference=rep.get("order_reference") or "store purchase",
                                                                description="Purchase report")],

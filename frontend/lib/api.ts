@@ -104,6 +104,7 @@ export interface ContractTerms {
   purchase_channel?: "demo_checkout" | "external_store"; store_name?: string | null; store_url?: string | null;
   price_as_of?: string | null; known_subtotal?: string | null;
   checklist?: { key: string; label: string; requirement: string; why: string; auto?: boolean }[];
+  overridden_rules?: string[];
 }
 
 export interface Contract {

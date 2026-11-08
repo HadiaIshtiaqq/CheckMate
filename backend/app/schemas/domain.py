@@ -91,6 +91,7 @@ class ProductCandidate(BaseModel):
     match_score: int
     gaps: list[str] = Field(default_factory=list)
     unverified_specs: list[str] = Field(default_factory=list)
+    relevance_issues: list[str] = Field(default_factory=list)
     external: bool = False            # real store listing (Google Shopping)
     demo: bool = False                # fictional demo store listing
     thumbnail: str | None = None
@@ -205,6 +206,7 @@ class ContractTerms(BaseModel):
     price_as_of: str | None = None
     known_subtotal: Money | None = None
     checklist: list[dict] = Field(default_factory=list)
+    overridden_rules: list[str] = Field(default_factory=list)  # rules you chose to override for this offer
 
 
 # -------------------------------------------------------------- checkout ----

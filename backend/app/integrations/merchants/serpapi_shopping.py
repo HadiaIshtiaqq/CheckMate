@@ -17,6 +17,7 @@ import time
 from decimal import Decimal
 
 import httpx
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from app.core.util import money, money_str, utcnow
@@ -153,10 +154,11 @@ class SerpApiShoppingAdapter(MerchantAdapter):
         if r.status_code != 200:
             raise ProductSourceError(f"Google Shopping search failed (HTTP {r.status_code}).")
         retrieved = utcnow().isoformat()
-        listings = []
+        listings, seen_ids = [], set()
         for item in data.get("shopping_results") or []:
             listing = self._to_listing(item, gl, q, retrieved)
-            if listing:
+            if listing and listing["id"] not in seen_ids:  # Google can list the same offer twice
+                seen_ids.add(listing["id"])
                 listings.append(listing)
             if len(listings) >= self._max:
                 break
@@ -196,13 +198,12 @@ class SerpApiShoppingAdapter(MerchantAdapter):
 
     def _persist(self, listings: list[dict]) -> None:
         with self._sessions() as db:
-            for l in listings:
-                row = db.get(ExternalOffer, l["id"])
-                if row:
-                    row.data, row.retrieved_at = l, utcnow()
-                else:
-                    db.add(ExternalOffer(id=l["id"], data=l, retrieved_at=utcnow()))
-            db.commit()
+            for l in {x["id"]: x for x in listings}.values():
+                db.merge(ExternalOffer(id=l["id"], data=l, retrieved_at=utcnow()))  # insert-or-update
+            try:
+                db.commit()
+            except IntegrityError:  # a concurrent search stored the same offer first
+                db.rollback()
 
     def refresh_listing(self, product_id: str) -> dict | None:
         """Re-runs the original search without the cache (one paid search) and returns

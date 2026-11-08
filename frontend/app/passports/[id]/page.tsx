@@ -60,17 +60,17 @@ export default function PassportPage({ params }: { params: { id: string } }) {
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Link href={`/workflows/${b.workflow_id}`} className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-500 dark:text-indigo-400"><ArrowLeft size={14} /> Back to workflow</Link>
+        <Link href={`/workflows/${b.workflow_id}`} className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-500 dark:text-brand-400"><ArrowLeft size={14} /> Back to workflow</Link>
         <button className="btn-secondary" onClick={download}><Download size={15} /> Export audit (JSON)</button>
       </div>
 
       {/* ------------------------------------------------------ certificate */}
-      <section className={`relative overflow-hidden rounded-3xl p-[1.5px] shadow-xl ${ok ? "bg-gradient-to-br from-emerald-400 via-indigo-500 to-violet-500 shadow-indigo-500/20" : "bg-gradient-to-br from-amber-400 via-orange-500 to-rose-500 shadow-amber-500/20"}`}>
+      <section className={`relative overflow-hidden rounded-3xl p-[1.5px] shadow-xl ${ok ? "bg-gradient-to-br from-emerald-400 via-brand-500 to-plum-500 shadow-brand-500/20" : "bg-gradient-to-br from-amber-400 via-orange-500 to-rose-500 shadow-amber-500/20"}`}>
         <div className="relative rounded-[22px] bg-gradient-to-br from-white to-slate-50 p-6 dark:from-slate-900 dark:to-slate-950 sm:p-8">
-          <div className="pointer-events-none absolute right-6 top-6 hidden h-28 w-28 place-items-center rounded-full border-4 border-dashed border-indigo-200 text-indigo-300 sm:grid dark:border-indigo-900 dark:text-indigo-800">
+          <div className="pointer-events-none absolute right-6 top-6 hidden h-28 w-28 place-items-center rounded-full border-4 border-dashed border-brand-200 text-brand-300 sm:grid dark:border-brand-900 dark:text-brand-800">
             <Award size={52} />
           </div>
-          <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.2em] text-indigo-600 dark:text-indigo-400"><Sparkles size={14} /> Purchase Truth Passport</div>
+          <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.2em] text-brand-600 dark:text-brand-400"><Sparkles size={14} /> Purchase Truth Passport</div>
           <h1 className="mt-2 max-w-2xl text-2xl font-extrabold tracking-tight sm:text-3xl">{b.selected_product.product_name}</h1>
           <p className="mt-1 text-sm text-slate-500">{b.selected_product.variant} · issued {new Date(b.generated_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</p>
 
@@ -102,7 +102,7 @@ export default function PassportPage({ params }: { params: { id: string } }) {
           <button onClick={copyHash} className="mt-5 flex max-w-full items-center gap-2 rounded-xl bg-slate-100 px-3 py-2 text-left text-xs text-slate-600 transition hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300" title="Copy passport hash">
             <Hash size={14} className="shrink-0" /><span className="shrink-0 font-semibold">Passport SHA-256</span>
             <span className="mono truncate">{pp.passport_hash}</span>
-            <span className="shrink-0 text-indigo-600">{copied ? "copied" : "copy"}</span>
+            <span className="shrink-0 text-brand-600">{copied ? "copied" : "copy"}</span>
           </button>
         </div>
       </section>
@@ -122,7 +122,7 @@ export default function PassportPage({ params }: { params: { id: string } }) {
 
       <div className="grid gap-5 lg:grid-cols-3">
         <Card title="Original request" icon={<Sparkles size={15} />}>
-          <blockquote className="border-l-4 border-indigo-300 pl-3 text-sm italic text-slate-700 dark:border-indigo-700 dark:text-slate-300">“{b.original_intent.raw_text.split("\n")[0]}”</blockquote>
+          <blockquote className="border-l-4 border-brand-300 pl-3 text-sm italic text-slate-700 dark:border-brand-700 dark:text-slate-300">“{b.original_intent.raw_text.split("\n")[0]}”</blockquote>
         </Card>
         <Card title="Cost breakdown" icon={<Receipt size={15} />}>
           {b.cost_breakdown.verified_checkout_lines.map((l: any, i: number) => (
@@ -185,7 +185,7 @@ export default function PassportPage({ params }: { params: { id: string } }) {
         <ol className="relative max-h-[420px] space-y-2 overflow-y-auto border-l border-slate-200 pl-5 dark:border-slate-800">
           {b.event_timeline.map((e: any) => (
             <li key={e.seq} className="relative text-sm">
-              <span className="absolute -left-[25px] top-1.5 h-2 w-2 rounded-full bg-indigo-400" />
+              <span className="absolute -left-[25px] top-1.5 h-2 w-2 rounded-full bg-brand-400" />
               <div className="flex flex-wrap items-baseline gap-x-2">
                 <span className="tabular-nums text-xs text-slate-400">{fmtTime(e.at)}</span>
                 <span className="mono text-[11px] text-slate-500">{e.type}</span>

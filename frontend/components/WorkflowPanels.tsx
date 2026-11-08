@@ -35,7 +35,7 @@ export function Stepper({ state }: { state: string }) {
         const tone = current && BAD.has(state) ? "bad" : current && WARN.has(state) ? "warn" : current ? "now" : passed ? "done" : "todo";
         const dot = {
           done: "bg-emerald-500 text-white",
-          now: "bg-indigo-600 text-white ring-4 ring-indigo-100 dark:ring-indigo-900/60",
+          now: "bg-brand-600 text-white ring-4 ring-brand-100 dark:ring-brand-900/60",
           warn: "bg-amber-400 text-amber-950 ring-4 ring-amber-100 dark:ring-amber-900/50",
           bad: "bg-rose-500 text-white ring-4 ring-rose-100 dark:ring-rose-900/50",
           todo: "bg-slate-100 text-slate-400 dark:bg-slate-800",
@@ -87,7 +87,7 @@ type Actions = {
 
 function Banner({ tone, icon, title, children }: { tone: "indigo" | "amber" | "rose" | "emerald" | "slate" | "sky"; icon: ReactNode; title: string; children?: ReactNode }) {
   const { grad, bg } = {
-    indigo: { grad: "from-indigo-500 to-violet-500", bg: "bg-indigo-50/60 dark:bg-indigo-950/30" },
+    indigo: { grad: "from-brand-500 to-plum-500", bg: "bg-brand-50/60 dark:bg-brand-950/30" },
     amber: { grad: "from-amber-400 to-orange-500", bg: "bg-amber-50/70 dark:bg-amber-950/30" },
     rose: { grad: "from-rose-500 to-pink-500", bg: "bg-rose-50/70 dark:bg-rose-950/30" },
     emerald: { grad: "from-emerald-500 to-teal-500", bg: "bg-emerald-50/70 dark:bg-emerald-950/30" },
@@ -207,10 +207,10 @@ export function NextStep({ wf, lastMessage, busy, actions }: { wf: Workflow; las
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 {wf.suggestions.map((s) => (
                   <button key={s.label + s.product_id} disabled={busy} onClick={() => actions.revise(s)}
-                          className="group flex items-start gap-3 rounded-xl bg-white p-3 text-left ring-1 ring-indigo-200 transition hover:-translate-y-0.5 hover:shadow-md hover:ring-indigo-400 disabled:opacity-50 dark:bg-slate-900 dark:ring-indigo-900">
-                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-indigo-50 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-300">{SUGGESTION_ICON[s.kind]}</span>
+                          className="group flex items-start gap-3 rounded-xl bg-white p-3 text-left ring-1 ring-brand-200 transition hover:-translate-y-0.5 hover:shadow-md hover:ring-brand-400 disabled:opacity-50 dark:bg-slate-900 dark:ring-brand-900">
+                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-950 dark:text-brand-300">{SUGGESTION_ICON[s.kind]}</span>
                     <span className="min-w-0">
-                      <span className="flex items-center gap-1 font-semibold text-slate-900 dark:text-white">{s.label}<ArrowRight size={14} className="text-indigo-500 transition group-hover:translate-x-0.5" /></span>
+                      <span className="flex items-center gap-1 font-semibold text-slate-900 dark:text-white">{s.label}<ArrowRight size={14} className="text-brand-500 transition group-hover:translate-x-0.5" /></span>
                       <span className="block text-xs text-slate-500">{s.detail}</span>
                     </span>
                   </button>
@@ -358,8 +358,8 @@ export function IntentSummary({ intent }: { intent: Record<string, any> }) {
       </div>
       {(specs.length > 0 || intent.preferred_variant) && (
         <div className="mt-3 flex flex-wrap gap-1.5">
-          {specs.map(([k, v]) => <span key={k} className="chip bg-indigo-50 text-indigo-700 ring-1 ring-inset ring-indigo-600/10 dark:bg-indigo-950 dark:text-indigo-300">{k.replace(/_/g, " ")}: {v}</span>)}
-          {intent.preferred_variant && <span className="chip bg-indigo-50 text-indigo-700 ring-1 ring-inset ring-indigo-600/10 dark:bg-indigo-950 dark:text-indigo-300">colour: {intent.preferred_variant}</span>}
+          {specs.map(([k, v]) => <span key={k} className="chip bg-brand-50 text-brand-700 ring-1 ring-inset ring-brand-600/10 dark:bg-brand-950 dark:text-brand-300">{k.replace(/_/g, " ")}: {v}</span>)}
+          {intent.preferred_variant && <span className="chip bg-brand-50 text-brand-700 ring-1 ring-inset ring-brand-600/10 dark:bg-brand-950 dark:text-brand-300">colour: {intent.preferred_variant}</span>}
         </div>
       )}
       {intent.assumptions?.length > 0 && (
@@ -376,19 +376,51 @@ const EVIDENCE_STYLE: Record<string, string> = {
   INSUFFICIENT_EVIDENCE: "bg-rose-50 text-rose-700 dark:bg-rose-950 dark:text-rose-300",
 };
 
+type SortKey = "best" | "price_asc" | "price_desc" | "rating";
+
 export function OfferCards({ evaluations, selectedId, onSelect, busy = false, canSwitch = false }: {
-  evaluations: Evaluation[]; selectedId?: string; onSelect?: (id: string) => void; busy?: boolean; canSwitch?: boolean;
+  evaluations: Evaluation[]; selectedId?: string; onSelect?: (id: string, brokenRules: string[]) => void;
+  busy?: boolean; canSwitch?: boolean;
 }) {
   const [open, setOpen] = useState<string | null>(null);
+  const [sort, setSort] = useState<SortKey>("best");
+  const [showFailed, setShowFailed] = useState(true);
   if (!evaluations.length) return null;
   const seen = new Set<string>();
   const rank = { PASS: 0, UNKNOWN: 1, FAIL: 2 } as const;
-  const rows = evaluations
-    .filter((e) => (seen.has(e.candidate.id) ? false : (seen.add(e.candidate.id), true)))
-    .sort((a, b) => Number(b.candidate.id === selectedId) - Number(a.candidate.id === selectedId) || rank[a.status] - rank[b.status]);
-  const passing = rows.filter((r) => r.status === "PASS").length;
+  const price = (e: Evaluation) => Number(e.cost?.total ?? e.candidate.price);
+  const unique = evaluations.filter((e) => (seen.has(e.candidate.id) ? false : (seen.add(e.candidate.id), true)));
+  const failedCount = unique.filter((r) => r.status === "FAIL").length;
+  const rows = unique
+    .filter((e) => showFailed || e.status !== "FAIL" || e.candidate.id === selectedId)
+    .sort((a, b) => {
+      const pin = Number(b.candidate.id === selectedId) - Number(a.candidate.id === selectedId);
+      if (pin) return pin;
+      if (sort === "price_asc") return price(a) - price(b);
+      if (sort === "price_desc") return price(b) - price(a);
+      if (sort === "rating") return (b.candidate.rating ?? -1) - (a.candidate.rating ?? -1) || (b.candidate.reviews ?? 0) - (a.candidate.reviews ?? 0);
+      return rank[a.status] - rank[b.status] || b.candidate.match_score - a.candidate.match_score || price(a) - price(b);
+    });
+  const passing = unique.filter((r) => r.status === "PASS").length;
   return (
-    <Card id="offers" title="Offers evaluated" icon={<Search size={15} />} right={<span className="text-xs text-slate-500">{passing > 0 ? `${passing} of ${plural(rows.length, "offer")} fully verified` : `${rows.filter((r) => r.status !== "FAIL").length} of ${plural(rows.length, "offer")} without a failed rule`}</span>}>
+    <Card id="offers" title="Offers" icon={<Search size={15} />} right={<span className="text-xs text-slate-500">{passing > 0 ? `${passing} of ${plural(unique.length, "offer")} fully verified` : `${unique.length - failedCount} of ${plural(unique.length, "offer")} without a failed rule`}</span>}>
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <div className="flex rounded-xl bg-slate-100 p-1 text-xs font-semibold dark:bg-slate-800" role="radiogroup" aria-label="Sort offers">
+          {([["best", "Best match"], ["price_asc", "Price ↑"], ["price_desc", "Price ↓"], ["rating", "Rating"]] as const).map(([k, l]) => (
+            <button key={k} role="radio" aria-checked={sort === k} onClick={() => setSort(k)}
+                    className={`rounded-lg px-3 py-1.5 transition ${sort === k ? "bg-white text-brand-700 shadow-sm dark:bg-slate-700 dark:text-white" : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"}`}>{l}</button>
+          ))}
+        </div>
+        {failedCount > 0 && (
+          <label className="ml-auto flex cursor-pointer items-center gap-2 text-xs font-medium text-slate-600 dark:text-slate-300">
+            <input type="checkbox" className="accent-brand-600" checked={showFailed} onChange={(e) => setShowFailed(e.target.checked)} />
+            Show {failedCount} that break a rule
+          </label>
+        )}
+      </div>
+      {canSwitch && onSelect && (
+        <p className="mb-3 text-xs text-slate-500">You can choose any offer. If it breaks one of your rules, you'll be asked to confirm, and the override is recorded in your plan and passport.</p>
+      )}
       <div className="grid gap-3">
         {rows.map((e) => {
           const c = e.candidate;
@@ -397,7 +429,7 @@ export function OfferCards({ evaluations, selectedId, onSelect, busy = false, ca
           const lvl = e.seller?.evidence_level ?? "INSUFFICIENT_EVIDENCE";
           const shown = e.conditions.filter((x) => x.key !== "currency");
           return (
-            <article key={c.id} className={`rounded-2xl border p-4 transition ${selected ? "border-indigo-300 bg-indigo-50/40 ring-2 ring-indigo-200 dark:border-indigo-800 dark:bg-indigo-950/20 dark:ring-indigo-900" : "border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"} ${e.status !== "PASS" && !selected ? "opacity-90" : ""}`}>
+            <article key={c.id} className={`rounded-2xl border p-4 transition ${selected ? "border-brand-300 bg-brand-50/40 ring-2 ring-brand-200 dark:border-brand-800 dark:bg-brand-950/20 dark:ring-brand-900" : "border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"} ${e.status !== "PASS" && !selected ? "opacity-90" : ""}`}>
               <div className="flex flex-wrap items-start gap-3">
                 {c.thumbnail ? (
                   // Served through CHECKMATE's image proxy so the browser never contacts the image host.
@@ -405,14 +437,14 @@ export function OfferCards({ evaluations, selectedId, onSelect, busy = false, ca
                   <img src={`/api/v1/images/${c.id}`} alt="" loading="lazy"
                        className="h-14 w-14 shrink-0 rounded-xl bg-white object-contain ring-1 ring-slate-200 dark:ring-slate-700" />
                 ) : (
-                  <span className={`grid h-12 w-12 shrink-0 place-items-center rounded-xl ${e.status === "PASS" ? "bg-gradient-to-br from-indigo-500 to-violet-500 text-white" : "bg-slate-100 text-slate-400 dark:bg-slate-800"}`}>
+                  <span className={`grid h-12 w-12 shrink-0 place-items-center rounded-xl ${e.status === "PASS" ? "bg-gradient-to-br from-brand-500 to-plum-500 text-white" : "bg-slate-100 text-slate-400 dark:bg-slate-800"}`}>
                     <Package size={22} />
                   </span>
                 )}
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="font-bold">{c.product_name}</h3>
-                    {selected && <span className="chip bg-indigo-600 text-white"><Check size={12} strokeWidth={3} /> In your contract</span>}
+                    {selected && <span className="chip bg-brand-600 text-white"><Check size={12} strokeWidth={3} /> In your contract</span>}
                     {c.demo && <span className="chip bg-amber-50 text-[10px] font-semibold uppercase text-amber-700 dark:bg-amber-950" title="Fictional demo store, enabled for testing">Demo store (fictional)</span>}
                   </div>
                   <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
@@ -442,13 +474,16 @@ export function OfferCards({ evaluations, selectedId, onSelect, busy = false, ca
               </div>
 
               <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
-                <button onClick={() => setOpen(isOpen ? null : c.id)} className="flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-500 dark:text-indigo-400" aria-expanded={isOpen}>
+                <button onClick={() => setOpen(isOpen ? null : c.id)} className="flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-500 dark:text-brand-400" aria-expanded={isOpen}>
                   <ChevronDown size={14} className={`transition ${isOpen ? "rotate-180" : ""}`} />{isOpen ? "Hide evidence" : "Show evidence"}
                 </button>
-                {c.external && c.product_url && <a href={c.product_url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-xs font-semibold text-slate-600 hover:text-indigo-600 dark:text-slate-300">View on Google Shopping <ArrowRight size={12} /></a>}
+                {c.external && c.product_url && <a href={c.product_url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-xs font-semibold text-slate-600 hover:text-brand-600 dark:text-slate-300">View on Google Shopping <ArrowRight size={12} /></a>}
                 {c.external && c.retrieved_at && <span className="text-[11px] text-slate-400">price as of {new Date(c.retrieved_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</span>}
-                {canSwitch && onSelect && !selected && c.external && e.status !== "FAIL" && (
-                  <button className="btn-secondary ml-auto py-1 text-xs" disabled={busy} onClick={() => onSelect(c.id)}>Use this offer</button>
+                {canSwitch && onSelect && !selected && (c.external || e.status === "PASS") && (
+                  <button className={`ml-auto py-1.5 text-xs ${e.status === "FAIL" ? "btn-secondary" : "btn-primary"}`} disabled={busy}
+                          onClick={() => onSelect(c.id, e.conditions.filter((x) => x.mandatory && x.result === "FAIL").map((x) => `${x.label}: ${x.reason}`))}>
+                    <Check size={13} strokeWidth={3} /> Choose this offer
+                  </button>
                 )}
               </div>
               {isOpen && (
@@ -473,7 +508,7 @@ export function OfferCards({ evaluations, selectedId, onSelect, busy = false, ca
                         ))}
                       </div>
                     )}
-                    <a href={c.product_url} className="inline-flex items-center gap-1 text-indigo-600 hover:underline" target="_blank" rel="noreferrer">Listing <ArrowRight size={12} /></a>
+                    <a href={c.product_url} className="inline-flex items-center gap-1 text-brand-600 hover:underline" target="_blank" rel="noreferrer">Listing <ArrowRight size={12} /></a>
                   </div>
                 </div>
               )}
@@ -494,7 +529,7 @@ export function ContractCard({ contract, state, busy, onApprove, onRevoke }: {
   const editable = ["CONTRACT_CREATED", "CHECKOUT_BLOCKED", "PAYMENT_PENDING_APPROVAL", "PAYMENT_FAILED"].includes(state);
   return (
     <section id="contract" className="card animate-fade-up scroll-mt-24 overflow-hidden p-0">
-      <div className="flex items-center justify-between bg-gradient-to-r from-slate-900 to-indigo-950 px-5 py-3 text-white">
+      <div className="flex items-center justify-between bg-gradient-to-r from-slate-900 to-brand-950 px-5 py-3 text-white">
         <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest"><FileText size={15} /> {t.purchase_channel === "external_store" ? "Purchase plan" : "Purchase contract"}</span>
         <span className="chip bg-white/15 text-white">v{contract.version}</span>
       </div>
@@ -502,8 +537,8 @@ export function ContractCard({ contract, state, busy, onApprove, onRevoke }: {
         <div className="text-lg font-bold leading-tight">{t.product_name}</div>
         <div className="text-sm text-slate-500">{[t.model, t.exact_variant].filter(Boolean).join(" · ")}{(t.model || t.exact_variant) ? " · " : ""}from <b className="text-slate-700 dark:text-slate-200">{t.seller_name}</b></div>
         <div className="my-4 grid grid-cols-2 gap-2">
-          <div className="rounded-xl bg-indigo-50 p-3 dark:bg-indigo-950/40">
-            <div className="text-[11px] font-semibold uppercase text-indigo-600 dark:text-indigo-300">Maximum total</div>
+          <div className="rounded-xl bg-brand-50 p-3 dark:bg-brand-950/40">
+            <div className="text-[11px] font-semibold uppercase text-brand-600 dark:text-brand-300">Maximum total</div>
             <div className="text-xl font-extrabold tabular-nums">{money(t.max_total, t.currency)}</div>
           </div>
           <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800/50">
@@ -516,6 +551,12 @@ export function ContractCard({ contract, state, busy, onApprove, onRevoke }: {
         <Field label="Warranty">{t.warranty_min_months ? `≥ ${t.warranty_min_months} months` : t.warranty_required ? "Required" : "Not required"}</Field>
         <Field label="Returns">{t.return_required ? `${t.free_returns_required ? "Free returns" : "Returns"}${t.min_return_days ? ` ≥ ${t.min_return_days} days` : ""}` : "Not required"}</Field>
         <Field label="Subscription">{t.subscription_allowed ? "Allowed" : <span className="text-rose-600">Not allowed</span>}</Field>
+        {(t.overridden_rules?.length ?? 0) > 0 && (
+          <div className="my-2 rounded-xl bg-amber-50 p-3 text-xs text-amber-900 ring-1 ring-inset ring-amber-600/20 dark:bg-amber-950/40 dark:text-amber-200">
+            <div className="mb-1 font-bold">You chose this offer despite:</div>
+            <ul className="list-disc space-y-0.5 pl-4">{t.overridden_rules!.map((r) => <li key={r}>{r}</li>)}</ul>
+          </div>
+        )}
         <Field label="Add-ons">{t.approved_addons.length ? t.approved_addons.join(", ") : "None permitted"}</Field>
         <Field label="Valid until">{new Date(contract.expires_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</Field>
         <div className="mt-3 flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:bg-slate-800/50" title={contract.contract_hash}>
@@ -546,7 +587,7 @@ export function ContractCard({ contract, state, busy, onApprove, onRevoke }: {
             <ol className="relative space-y-3 border-l border-slate-200 pl-4 dark:border-slate-700">
               {contract.versions.slice().reverse().map((v) => (
                 <li key={v.version} className="text-xs">
-                  <span className={`absolute -left-[5px] mt-1 h-2.5 w-2.5 rounded-full ${v.version === contract.version ? "bg-indigo-500" : "bg-slate-300 dark:bg-slate-600"}`} />
+                  <span className={`absolute -left-[5px] mt-1 h-2.5 w-2.5 rounded-full ${v.version === contract.version ? "bg-brand-500" : "bg-slate-300 dark:bg-slate-600"}`} />
                   <b>v{v.version}</b> <span className="mono text-slate-400">{shortHash(v.contract_hash)}</span>
                   <div className="text-slate-500">{v.reason}</div>
                 </li>
@@ -573,7 +614,7 @@ const SCENARIO_UI: Record<string, { title: string; tone: string; icon: ReactNode
 };
 const TONE_RING: Record<string, string> = {
   emerald: "text-emerald-600 bg-emerald-50 dark:bg-emerald-950", rose: "text-rose-600 bg-rose-50 dark:bg-rose-950",
-  amber: "text-amber-600 bg-amber-50 dark:bg-amber-950", violet: "text-violet-600 bg-violet-50 dark:bg-violet-950",
+  amber: "text-amber-600 bg-amber-50 dark:bg-amber-950", violet: "text-plum-600 bg-plum-50 dark:bg-plum-950",
 };
 
 export function VerificationCard({ verification, scenarios, canVerify, busy, onVerify }: {
@@ -592,7 +633,7 @@ export function VerificationCard({ verification, scenarios, canVerify, busy, onV
           const on = scenario === k;
           return (
             <button key={k} role="radio" aria-checked={on} title={desc} onClick={() => setScenario(k)}
-                    className={`flex flex-col items-start gap-1.5 rounded-xl border p-3 text-left text-xs transition ${on ? "border-indigo-400 bg-indigo-50/60 ring-2 ring-indigo-200 dark:border-indigo-700 dark:bg-indigo-950/30 dark:ring-indigo-900" : "border-slate-200 hover:border-slate-300 dark:border-slate-800"}`}>
+                    className={`flex flex-col items-start gap-1.5 rounded-xl border p-3 text-left text-xs transition ${on ? "border-brand-400 bg-brand-50/60 ring-2 ring-brand-200 dark:border-brand-700 dark:bg-brand-950/30 dark:ring-brand-900" : "border-slate-200 hover:border-slate-300 dark:border-slate-800"}`}>
               <span className={`grid h-7 w-7 place-items-center rounded-lg ${TONE_RING[ui.tone]}`}>{ui.icon}</span>
               <span className="font-bold text-slate-800 dark:text-slate-100">{ui.title}</span>
               <span className="line-clamp-2 text-[11px] leading-snug text-slate-500">{desc}</span>
@@ -674,10 +715,10 @@ export function PaymentCard({ wf, payment, busy, onPay, onCapture }: {
     <Card id="pay" title="PayPal payment" icon={<CreditCard size={15} />}
           right={payment && <span className="chip bg-slate-100 text-slate-600 dark:bg-slate-800">{payment.environment === "sandbox" ? "Sandbox" : "Simulated"}</span>}>
       {v?.status === "PASS" && v.checkout_snapshot ? (
-        <div className="mb-4 rounded-2xl bg-gradient-to-br from-slate-900 to-indigo-950 p-4 text-white">
-          <div className="text-[11px] uppercase tracking-wider text-indigo-200">Verified order total</div>
+        <div className="mb-4 rounded-2xl bg-gradient-to-br from-slate-900 to-brand-950 p-4 text-white">
+          <div className="text-[11px] uppercase tracking-wider text-brand-200">Verified order total</div>
           <div className="text-3xl font-extrabold tabular-nums">{money(payment?.captured_amount ?? v.checkout_snapshot.stated_total, payment?.captured_currency ?? v.checkout_snapshot.currency)}</div>
-          <div className="mt-1 truncate text-xs text-indigo-200">{wf.contract?.terms.product_name} · {wf.contract?.terms.seller_name}</div>
+          <div className="mt-1 truncate text-xs text-brand-200">{wf.contract?.terms.product_name} · {wf.contract?.terms.seller_name}</div>
         </div>
       ) : (
         <p className="mb-3 flex items-start gap-2 text-sm text-slate-500"><Lock size={15} className="mt-0.5 shrink-0" />Payment unlocks only after the checkout verification passes.</p>
@@ -712,15 +753,15 @@ export function PaymentCard({ wf, payment, busy, onPay, onCapture }: {
 
 /* ====================================================== agent timeline */
 const AGENTS: Record<string, { name: string; cls: string; icon: ReactNode }> = {
-  intent_agent: { name: "Intent", cls: "bg-violet-500", icon: <Sparkles size={13} /> },
+  intent_agent: { name: "Intent", cls: "bg-plum-500", icon: <Sparkles size={13} /> },
   discovery_agent: { name: "Discovery", cls: "bg-sky-500", icon: <Search size={13} /> },
   seller_trust_agent: { name: "Seller Trust", cls: "bg-amber-500", icon: <Store size={13} /> },
   terms_agent: { name: "Terms", cls: "bg-teal-500", icon: <FileText size={13} /> },
   cost_auditor: { name: "Cost Auditor", cls: "bg-emerald-500", icon: <Scale size={13} /> },
-  contract_agent: { name: "Contract", cls: "bg-indigo-500", icon: <FileText size={13} /> },
+  contract_agent: { name: "Contract", cls: "bg-brand-500", icon: <FileText size={13} /> },
   checkout_agent: { name: "Verification", cls: "bg-rose-500", icon: <ShieldCheck size={13} /> },
   payment_agent: { name: "Payment", cls: "bg-blue-600", icon: <CreditCard size={13} /> },
-  reconciliation_agent: { name: "Reconciliation", cls: "bg-fuchsia-500", icon: <Receipt size={13} /> },
+  reconciliation_agent: { name: "Reconciliation", cls: "bg-plum-500", icon: <Receipt size={13} /> },
   monitoring_agent: { name: "Monitoring", cls: "bg-slate-500", icon: <Eye size={13} /> },
 };
 const NOISY = new Set(["seller.assessed", "terms.extracted", "cost.calculated", "workflow.state_changed"]);
@@ -766,7 +807,7 @@ export function AgentTimeline({ events, runs, chainOk }: { events: WfEvent[]; ru
           );
         })}
       </ol>
-      <button className="mt-3 text-xs font-semibold text-indigo-600 hover:text-indigo-500 dark:text-indigo-400" onClick={() => setAll(!all)}>
+      <button className="mt-3 text-xs font-semibold text-brand-600 hover:text-brand-500 dark:text-brand-400" onClick={() => setAll(!all)}>
         {all ? "Show key events" : `Show all ${plural(events.length, "event")}`}
       </button>
     </Card>

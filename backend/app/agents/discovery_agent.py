@@ -3,6 +3,7 @@ Google Shopping; the fictional demo store only when explicitly enabled) and
 ranks candidates against the intent. It never invents listings."""
 from __future__ import annotations
 
+import re
 from decimal import Decimal
 
 from app.agents.base import AgentOutput, BaseAgent
@@ -31,6 +32,47 @@ def spec_gaps(required: dict[str, str], offered: dict[str, str]) -> tuple[list[s
         elif have.lower() != want.lower():
             gaps.append(f"{key} is {have}, required {want}")
     return gaps, unverified
+
+
+DIGITAL_SOURCES = re.compile(r"\b(fab by epic games|turbosquid|cgtrader|sketchfab|unity asset store|creative market|"
+                             r"envato|shutterstock|adobe stock|design bundles|etsy digital)\b", re.I)
+DIGITAL_TITLE = re.compile(r"\b(3d model|3d asset|game asset|digital download|instant download|printable|svg|png file|"
+                           r"pdf pattern|sewing pattern|template|clip ?art|wallpaper|mockup|stl file|vector)\b", re.I)
+ACCESSORY_TITLE = re.compile(r"\b(replacement|keycaps?|key ?switch(?:es)?|switches|cushions?|slipcovers?|seat covers?|"
+                             r"skins?|decals?|stickers?|screen protectors?|ear ?pads?|ear ?cushions?|ear ?tips?|"
+                             r"wrist rest|repair kit|spare parts?|casters?|armrest pads?)\b", re.I)
+TOY_TITLE = re.compile(r"\b(dollhouse|miniature|toy|doll|figurine|keychain|ornament|lego)\b", re.I)
+HEAD_NOUNS = {
+    "headphones": ["headphone", "headset", "earphone", "earbud", "ear bud", "airpods", "buds"],
+    "laptop": ["laptop", "notebook", "chromebook", "macbook", "ultrabook"],
+    "keyboard": ["keyboard"],
+    "coffee maker": ["coffee maker", "coffeemaker", "coffee machine", "brewer", "espresso"],
+}
+
+
+def _singular(w: str) -> str:
+    return w[:-1] if w.endswith("s") and not w.endswith("ss") else w
+
+
+def relevance_issues(intent: ShoppingIntent, listing: dict) -> list[str]:
+    """Why a listing is probably NOT the product asked for (digital good, accessory, toy, other item)."""
+    title = listing["name"].lower()
+    store = (listing.get("listing_seller_name") or "").lower()
+    issues = []
+    if DIGITAL_SOURCES.search(store) or DIGITAL_TITLE.search(title):
+        issues.append("looks like a digital file or 3D asset, not the physical product")
+    wanted = (intent.product_description or "").lower()
+    if not ACCESSORY_TITLE.search(wanted) and ACCESSORY_TITLE.search(title):
+        issues.append(f"looks like an accessory or part ('{ACCESSORY_TITLE.search(title).group(0)}'), not the product")
+    if not TOY_TITLE.search(wanted) and TOY_TITLE.search(title):
+        issues.append("looks like a toy or miniature")
+    nouns = HEAD_NOUNS.get(intent.category or "", None)
+    if nouns is None:
+        words = [w for w in re.findall(r"[a-z]+", wanted) if len(w) > 2]
+        nouns = [_singular(words[-1])] if words else []
+    if nouns and not any(n in title for n in nouns):
+        issues.append(f"title doesn't mention {' / '.join(nouns[:3])}")
+    return issues
 
 
 def search_query(intent: ShoppingIntent) -> str:
@@ -78,6 +120,8 @@ class DiscoveryAgent(BaseAgent):
             if intent.max_budget is not None and Decimal(l["price"]) * intent.quantity > intent.max_budget:
                 score -= 20
             external = bool(l.get("external"))
+            issues = relevance_issues(intent, l) if external else []
+            score -= 50 * len(issues)
             source = l.get("source_label") or ("Demo store (fictional)" if l.get("demo") else "catalogue")
             candidates.append(ProductCandidate(
                 id=l["id"], source=source, product_name=l["name"], brand=l["brand"], model=l["model"],
@@ -85,6 +129,7 @@ class DiscoveryAgent(BaseAgent):
                 currency=l["currency"], seller_id=l["seller_id"], listing_seller_name=l["listing_seller_name"],
                 product_url=l.get("url") or "", specifications=l["specs"], description=l["description"],
                 match_score=max(score, 0), gaps=gaps, unverified_specs=unverified, external=external,
+                relevance_issues=issues,
                 demo=bool(l.get("demo")), thumbnail=l.get("thumbnail"), rating=l.get("rating"),
                 reviews=l.get("reviews"), multiple_sources=bool(l.get("multiple_sources")),
                 delivery_text=l.get("delivery_text"), retrieved_at=l.get("retrieved_at"),

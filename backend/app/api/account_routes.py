@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
+import socket
+from urllib.parse import urlsplit
 import json
 import re
 import threading
@@ -167,6 +170,19 @@ def download_receipt(receipt_id: str, user: User = Depends(current_user), db: Se
 
 
 # ============================================================== image proxy ===
+def _public_https(url: str) -> bool:
+    """True only for https URLs whose host resolves exclusively to public addresses (SSRF guard)."""
+    parts = urlsplit(url)
+    if parts.scheme != "https" or not parts.hostname:
+        return False
+    try:
+        infos = socket.getaddrinfo(parts.hostname, parts.port or 443, proto=socket.IPPROTO_TCP)
+    except OSError:
+        return False
+    addrs = {ipaddress.ip_address(i[4][0]) for i in infos}
+    return bool(addrs) and all(a.is_global for a in addrs)
+
+
 _images: OrderedDict[str, tuple[bytes, str]] = OrderedDict()
 _images_lock = threading.Lock()
 
@@ -185,8 +201,15 @@ def offer_image(offer_id: str, user: User = Depends(current_user), db: Session =
     if not url or not url.startswith("https://"):
         raise svc.NotFound("Image not found")
     try:
-        with httpx.Client(timeout=10, follow_redirects=True) as http:
-            r = http.get(url)
+        with httpx.Client(timeout=10, follow_redirects=False) as http:
+            for _ in range(4):  # follow redirects manually so every hop is checked
+                if not _public_https(url):
+                    raise HTTPException(502, "Image unavailable")
+                r = http.get(url)
+                if r.is_redirect and r.headers.get("location"):
+                    url = str(r.url.join(r.headers["location"]))
+                    continue
+                break
     except httpx.HTTPError as e:
         raise HTTPException(502, "Image unavailable") from e
     ctype = r.headers.get("content-type", "").split(";")[0]

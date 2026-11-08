@@ -215,11 +215,21 @@ def test_image_proxy(client, real_stores, monkeypatch):
     sony = next(l for l in real_stores.search_products("wireless headphones", None, currency="USD")
                 if l["listing_seller_name"] == "Best Buy")
     img = b"\x89PNG\r\n\x1a\nimg"
+    monkeypatch.setattr(ar, "_public_https", lambda url: True)  # fake image host has no DNS
     monkeypatch.setattr(ar.httpx, "Client", lambda **kw: real_client(
         transport=httpx.MockTransport(lambda req: httpx.Response(200, content=img, headers={"content-type": "image/png"}))))
     r = client.get(f"/api/v1/images/{sony['id']}", headers=A)
     assert r.status_code == 200 and r.content == img
     assert client.get("/api/v1/images/ext-doesnotexist", headers=A).status_code == 404
+
+
+def test_image_proxy_blocks_private_hosts():
+    from app.api.account_routes import _public_https
+    assert not _public_https("https://127.0.0.1/a.png")
+    assert not _public_https("https://192.168.1.10/a.png")
+    assert not _public_https("https://169.254.169.254/latest/meta-data")
+    assert not _public_https("http://8.8.8.8/a.png")
+    assert _public_https("https://8.8.8.8/a.png")
 
 
 def test_live_updates_stream(client, paypal):

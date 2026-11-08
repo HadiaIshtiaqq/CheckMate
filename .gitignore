@@ -1,0 +1,15 @@
+.env
+*.db
+*.log
+__pycache__/
+.venv/
+.pytest_cache/
+node_modules/
+.next/
+
+# local tooling
+.claude/
+next-env.d.ts.bak
+*.db-shm
+*.db-wal
+*.db-journal

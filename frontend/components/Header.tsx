@@ -2,15 +2,27 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { api, type SystemInfo } from "@/lib/api";
-import { Bot, Lock, Store } from "@/components/icons";
+import { api, post, type Account, type SystemInfo } from "@/lib/api";
+import { Bot, Lock, ShieldCheck, Store } from "@/components/icons";
 
 export default function Header() {
   const [sys, setSys] = useState<SystemInfo | null | undefined>(undefined);
+  const [account, setAccount] = useState<Account | null | undefined>(undefined);
+  const onLogin = typeof window !== "undefined" && window.location.pathname === "/login";
 
   useEffect(() => {
     api<SystemInfo>("/api/v1/system").then(setSys).catch(() => setSys(null));
+    if (window.location.pathname !== "/login") {
+      api<Account>("/api/v1/auth/me").then(setAccount).catch(() => setAccount(null));
+    } else {
+      setAccount(null);
+    }
   }, []);
+
+  const signOut = async () => {
+    await post("/api/v1/auth/logout").catch(() => null);
+    window.location.href = "/login";
+  };
 
   const llm = sys?.llm_enabled
     ? `${sys.llm_provider === "gemini" ? "Gemini" : "OpenAI"} · ${sys.llm_model}`
@@ -56,6 +68,16 @@ export default function Header() {
               </span>
             </>
           )}
+          {account && (
+            <>
+              <Link href="/mandates" className="chip bg-white text-slate-700 ring-1 ring-inset ring-slate-200 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700">
+                <ShieldCheck size={12} /> Mandates
+              </Link>
+              <span className="chip max-w-[180px] truncate bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300" title={account.email ?? ""}>{account.email}</span>
+              <button onClick={signOut} className="chip bg-white text-slate-600 ring-1 ring-inset ring-slate-200 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-700">Sign out</button>
+            </>
+          )}
+          {account === null && !onLogin && <Link href="/login" className="btn-primary py-1.5 text-xs">Sign in</Link>}
         </div>
       </div>
     </header>

@@ -88,11 +88,6 @@ def system_info():
             "demo_controls_enabled": s.demo_controls_enabled, "scenarios": SCENARIOS}
 
 
-@router.get("/me")
-def me(user: User = Depends(current_user)):
-    return {"id": user.id, "display_name": user.display_name}
-
-
 # --------------------------------------------------------------- workflows ---
 @router.post("/shopping/intents", status_code=202)
 def submit_intent(body: IntentIn, bg: BackgroundTasks, user: User = Depends(serialized_user),

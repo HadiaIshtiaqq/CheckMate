@@ -13,3 +13,7 @@ next-env.d.ts.bak
 *.db-shm
 *.db-wal
 *.db-journal
+backend/.keys/
+e2e.db
+frontend/test-results/
+frontend/playwright-report/

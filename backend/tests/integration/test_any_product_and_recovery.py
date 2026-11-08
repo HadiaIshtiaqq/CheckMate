@@ -67,6 +67,8 @@ def test_mock_approval_page_requires_link_secret(client):
 def test_rate_limit_cannot_be_bypassed_with_fake_tokens():
     from app.security.auth import RateLimitMiddleware
 
+    with engine.begin() as conn:  # counters are shared through the database; start clean
+        conn.execute(text("DELETE FROM rate_counters"))
     app = FastAPI()
     app.add_middleware(RateLimitMiddleware, per_minute=3)
     app.get("/x")(lambda: {"ok": True})
@@ -76,8 +78,12 @@ def test_rate_limit_cannot_be_bypassed_with_fake_tokens():
     assert c.get("/x", headers=A).status_code == 200  # a real user has their own bucket
 
 
-def test_missing_columns_are_added_to_existing_tables():
-    with engine.begin() as conn:
-        conn.execute(text('ALTER TABLE webhook_events DROP COLUMN "result"'))
-    assert "webhook_events.result" in ensure_columns()
-    assert ensure_columns() == []
+def test_missing_columns_are_added_to_existing_tables(tmp_path):
+    from sqlalchemy import create_engine
+
+    old_db = create_engine(f"sqlite:///{(tmp_path / 'old.db').as_posix()}")
+    with old_db.begin() as conn:  # an "old" schema: webhook_events without the newer `result` column
+        conn.execute(text("CREATE TABLE webhook_events (id VARCHAR(128) PRIMARY KEY, event_type VARCHAR(64), "
+                          "resource_id VARCHAR(64), payload JSON, processed BOOLEAN, received_at DATETIME)"))
+    assert "webhook_events.result" in ensure_columns(old_db)
+    assert ensure_columns(old_db) == []

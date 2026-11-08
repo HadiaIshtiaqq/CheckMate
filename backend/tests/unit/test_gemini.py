@@ -137,3 +137,28 @@ def test_factory_prefers_gemini_when_keys_present():
     assert build_llm(replace(s, gemini_api_keys=("k",))).provider == "gemini"
     assert build_llm(replace(s, gemini_api_keys=(), openai_api_key=None)).provider == "none"
     assert build_llm(replace(s, llm_provider="none", gemini_api_keys=("k",))).provider == "none"
+
+
+def test_retired_model_hint_is_followed():
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.path)
+        if "old-model" in request.url.path:
+            return err(404, "This model models/old-model is no longer available to new users. Please update your "
+                            "code to use models/new-model for the latest features.", "NOT_FOUND")
+        return ok(GOOD_TERMS)
+
+    g = GeminiLLM(["k"], ["old-model"], transport=httpx.MockTransport(handler))
+    assert g.structured("s", "u", LLMTerms) is not None
+    assert seen[-1].endswith("/models/new-model:generateContent") and g.model == "new-model"
+
+
+def test_slow_model_is_skipped_for_the_next():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "slow-model" in request.url.path:
+            raise httpx.ReadTimeout("timed out", request=request)
+        return ok(GOOD_TERMS)
+
+    g = GeminiLLM(["k"], ["slow-model", "fast-model"], transport=httpx.MockTransport(handler))
+    assert g.structured("s", "u", LLMTerms) is not None and g.model == "fast-model"

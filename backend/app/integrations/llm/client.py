@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import threading
 import time
 from collections import OrderedDict
@@ -150,6 +151,7 @@ class GeminiLLM(LLMProvider):
         self._keys = [_KeyState(k) for k in dict.fromkeys(api_keys)]
         self._models = list(dict.fromkeys(models)) or ["gemini-2.5-flash"]
         self._dead_models: set[str] = set()
+        self._slow_until: dict[str, float] = {}
         self.model = self._models[0]
         self._timeout = timeout
         self._cooldown = rate_limit_cooldown
@@ -255,8 +257,11 @@ class GeminiLLM(LLMProvider):
 
     def _call(self, system: str, user: str, json_schema: dict) -> Any:
         gemini_schema = to_gemini_schema(json_schema)
-        for model in self._models:
-            if model in self._dead_models:
+        i = 0
+        while i < len(self._models):
+            model = self._models[i]
+            i += 1
+            if model in self._dead_models or self._slow_until.get(model, 0) > time.monotonic():
                 continue
             use_schema = True
             attempts = 0
@@ -279,6 +284,11 @@ class GeminiLLM(LLMProvider):
                 try:
                     r = self._http.post(f"{GEMINI_BASE_URL}/models/{model}:generateContent", json=body,
                                         headers={"x-goog-api-key": key.key, "Content-Type": "application/json"})
+                except httpx.TimeoutException:
+                    # Slow or overloaded model: skip it for a while and try the next one.
+                    log.warning("Gemini model %s timed out; trying next model", model)
+                    self._slow_until[model] = time.monotonic() + 600
+                    break
                 except httpx.HTTPError as e:
                     log.warning("Gemini request failed (%s)", e.__class__.__name__)
                     return None
@@ -310,6 +320,10 @@ class GeminiLLM(LLMProvider):
                 if r.status_code == 404:
                     log.warning("Gemini model %s unavailable; trying next model", model)
                     self._dead_models.add(model)
+                    # Google names the replacement for retired models: "... use models/<name> ..."
+                    hint = re.search(r"models/([A-Za-z0-9.\-]+)", message.split("use", 1)[-1]) if "use" in message else None
+                    if hint and hint.group(1) not in self._models:
+                        self._models.append(hint.group(1))
                     break
                 if r.status_code == 400 and use_schema:
                     use_schema = False  # schema rejected: retry with schema-in-prompt

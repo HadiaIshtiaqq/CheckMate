@@ -103,7 +103,7 @@ export default function Dashboard() {
                         onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit(); }} />
               <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-1 pt-3 dark:border-slate-800">
                 <div className="flex rounded-xl bg-slate-100 p-1 text-xs font-semibold dark:bg-slate-800" role="radiogroup" aria-label="Autonomy mode">
-                  {[{ v: "ASSISTED", l: "Buy it", t: "Find, verify and pay with your approval", i: <CreditCard size={14} /> }, { v: "MONITORING_ONLY", l: "Just watch", t: "Track the offer without buying (you can switch to buying later)", i: <Eye size={14} /> }].map((m) => (
+                  {[{ v: "ASSISTED", l: "Buy it", t: "Find, verify and buy with your approval", i: <CreditCard size={14} /> }, { v: "MANDATE", l: "My mandate", t: "Approve automatically if it fits a purchasing mandate you set (you still pay yourself)", i: <ShieldCheck size={14} /> }, { v: "MONITORING_ONLY", l: "Just watch", t: "Track the offer without buying (you can switch to buying later)", i: <Eye size={14} /> }].map((m) => (
                     <button key={m.v} role="radio" aria-checked={mode === m.v} onClick={() => setMode(m.v)} title={m.t}
                             className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 transition ${mode === m.v ? "bg-white text-indigo-700 shadow-sm dark:bg-slate-700 dark:text-white" : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"}`}>
                       {m.i}{m.l}

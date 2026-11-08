@@ -83,12 +83,14 @@ def test_production_refuses_default_secrets(monkeypatch):
     from app.core import config
 
     monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("CHECKMATE_DEMO_USERS", "alice:dev-token-alice")  # a publicly known token
     config.get_settings.cache_clear()
     try:
         with pytest.raises(RuntimeError, match="production"):
             config.get_settings()
     finally:
         monkeypatch.setenv("APP_ENV", "development")
+        monkeypatch.setenv("CHECKMATE_DEMO_USERS", "alice:tok-alice,bob:tok-bob")
         config.get_settings.cache_clear()
         config.get_settings()
 

@@ -47,11 +47,27 @@ export default function WorkflowPage({ params }: { params: { id: string } }) {
     api<SystemInfo>("/api/v1/system").then(setSys).catch(() => null);
   }, [load]);
 
+  // Live updates via server-sent events; polling takes over if the stream isn't available.
+  const [live, setLive] = useState(false);
   useEffect(() => {
-    if (!wf || !RUNNING.has(wf.state)) return;
+    if (typeof EventSource === "undefined") return;
+    const es = new EventSource(`/api/v1/workflows/${id}/stream`);
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    es.addEventListener("workflow", () => {
+      setLive(true);
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(load, 150); // coalesce bursts of events into one refresh
+    });
+    es.addEventListener("done", () => es.close());
+    es.onerror = () => setLive(false);
+    return () => { es.close(); if (timer) clearTimeout(timer); };
+  }, [id, load]);
+
+  useEffect(() => {
+    if (!wf || !RUNNING.has(wf.state) || live) return;
     const t = setTimeout(load, 900);
     return () => clearTimeout(t);
-  }, [wf, load]);
+  }, [wf, load, live]);
 
   useEffect(() => {
     if (!toast) return;
@@ -176,6 +192,16 @@ export default function WorkflowPage({ params }: { params: { id: string } }) {
           )}
           {contract && external && wf.autonomy_mode !== "MONITORING_ONLY" && wf.state === "CONTRACT_CREATED" && (
             <StorePurchaseCard contract={contract} state={wf.state} busy={busy}
+                               onRefresh={() => act(async () => {
+                                 const r = await post<{ found: boolean; changed?: boolean; price?: string }>(`/api/v1/workflows/${id}/refresh-offer`);
+                                 if (!r.found) throw new ApiError(404, "This listing no longer appears in Google Shopping results; it may be sold out.");
+                                 setToast({ tone: r.changed ? "warn" : "ok", text: r.changed ? `Price changed to ${r.price}. The plan was updated; approve it again.` : `Price unchanged (${r.price}).` });
+                               })}
+                               onReceipt={(f) => act(async () => {
+                                 const fd = new FormData();
+                                 fd.append("file", f);
+                                 await post(`/api/v1/contracts/${contract.id}/receipts`, fd);
+                               }, "Receipt attached.")}
                                onReport={(r) => act(() => post(`/api/v1/contracts/${contract.id}/report-purchase`, r), "Purchase recorded and reconciled. Your passport is ready.")} />
           )}
           {contract && !external && wf.autonomy_mode !== "MONITORING_ONLY" && (

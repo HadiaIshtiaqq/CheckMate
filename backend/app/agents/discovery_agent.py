@@ -94,5 +94,5 @@ class DiscoveryAgent(BaseAgent):
             ))
         candidates.sort(key=lambda c: (-c.match_score, c.price))
         missing = [] if candidates else [f"No listings found for '{intent.product_description}'."]
-        return AgentOutput(value=candidates[:10], evidence=[e for c in candidates[:10] for e in c.evidence_references],
+        return AgentOutput(value=candidates[:20], evidence=[e for c in candidates[:20] for e in c.evidence_references],
                            missing=missing, confidence=0.8 if candidates else 0.0)

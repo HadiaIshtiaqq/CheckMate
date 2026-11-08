@@ -66,17 +66,21 @@ def init_db() -> None:
 
     Base.metadata.create_all(engine)
     ensure_columns()
+    from app.database.migrations import run_migrations
+
+    run_migrations(engine)
 
 
-def ensure_columns() -> list[str]:
+def ensure_columns(bind=None) -> list[str]:
     """Lightweight forward migration: adds columns that exist in the models but not
     in an existing database (create_all never alters tables). New columns are added
     as nullable. Use Alembic for anything more complex (renames, type changes)."""
     from sqlalchemy import inspect, text
 
+    bind = bind or engine
     added = []
-    insp = inspect(engine)
-    with engine.begin() as conn:
+    insp = inspect(bind)
+    with bind.begin() as conn:
         for table in Base.metadata.sorted_tables:
             if not insp.has_table(table.name):
                 continue
@@ -84,7 +88,7 @@ def ensure_columns() -> list[str]:
             for col in table.columns:
                 if col.name in existing:
                     continue
-                ddl = f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" {col.type.compile(dialect=engine.dialect)}'
+                ddl = f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" {col.type.compile(dialect=bind.dialect)}'
                 conn.execute(text(ddl))
                 added.append(f"{table.name}.{col.name}")
     return added

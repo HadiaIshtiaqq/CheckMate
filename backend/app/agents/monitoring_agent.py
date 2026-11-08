@@ -12,7 +12,7 @@ from app.schemas.domain import ContractTerms, MonitoringReport
 
 class MonitoringAgent(BaseAgent):
     agent_id = "monitoring_agent"
-    allowed_tools = frozenset({"catalog.product_details", "merchant.terms"})
+    allowed_tools = frozenset({"catalog.product_details", "catalog.source_available", "merchant.terms"})
 
     def run(self, *, contract: ContractTerms, contract_id: str, now: datetime) -> AgentOutput:
         changes: list[str] = []
@@ -30,6 +30,11 @@ class MonitoringAgent(BaseAgent):
                                                                    description="Listing snapshot")])
         if expired:
             changes.append("Contract has expired.")
+        if not self.tools.call("catalog.source_available", contract.product_id):
+            report = MonitoringReport(contract_id=contract_id, checked_at=now, expired=expired, offer_available=True,
+                                      changes=changes, material_change=False, current_price=contract.unit_price,
+                                      note="This offer's product source isn't connected, so it wasn't re-checked.")
+            return AgentOutput(value=report)
         details = self.tools.call("catalog.product_details", contract.product_id)
         price = None
         if not details:

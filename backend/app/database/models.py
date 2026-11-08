@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, Float, ForeignKey, Integer, LargeBinary, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.util import utcnow
@@ -16,6 +16,8 @@ class User(Base):
     __tablename__ = "users"
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     display_name: Mapped[str] = mapped_column(String(128))
+    email: Mapped[str | None] = mapped_column(String(254), unique=True, nullable=True, index=True)
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
@@ -107,6 +109,8 @@ class ContractApproval(Base):
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
     status: Mapped[str] = mapped_column(String(20), default="ACTIVE")  # ACTIVE | INVALIDATED | REVOKED
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source: Mapped[str | None] = mapped_column(String(80), nullable=True)  # "user" | "mandate:<id>"
+    signature: Mapped[str | None] = mapped_column(String(128), nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     ended_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
 
@@ -222,3 +226,62 @@ class MockPayPalRequest(Base):
     __tablename__ = "mock_paypal_requests"
     request_id: Mapped[str] = mapped_column(String(128), primary_key=True)
     response: Mapped[dict] = mapped_column(JSON)
+
+
+class AuthSession(Base):
+    """Login session. Only a SHA-256 of the session token is stored."""
+
+    __tablename__ = "auth_sessions"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)  # sha256(token)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime)
+    revoked: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class RateCounter(Base):
+    """Fixed-window request counters shared by every API process."""
+
+    __tablename__ = "rate_counters"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    window_start: Mapped[int] = mapped_column(Integer)
+    count: Mapped[int] = mapped_column(Integer)
+
+
+class ReceiptFile(Base):
+    __tablename__ = "receipt_files"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    contract_id: Mapped[str] = mapped_column(ForeignKey("purchase_contracts.id"), index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    filename: Mapped[str] = mapped_column(String(200))
+    content_type: Mapped[str] = mapped_column(String(64))
+    size: Mapped[int] = mapped_column(Integer)
+    sha256: Mapped[str] = mapped_column(String(64))
+    data: Mapped[bytes] = mapped_column(LargeBinary)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class PurchasingMandate(Base):
+    """Mode B: a bounded mandate that lets CHECKMATE approve qualifying purchase
+    contracts/plans on the user's behalf. Payment itself still needs PayPal buyer
+    approval (demo store) or the user buying at the store (real stores)."""
+
+    __tablename__ = "purchasing_mandates"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    max_per_purchase: Mapped[str] = mapped_column(String(32))
+    monthly_cap: Mapped[str] = mapped_column(String(32))
+    currency: Mapped[str] = mapped_column(String(3))
+    allowed_stores: Mapped[list] = mapped_column(JSON, default=list)
+    allowed_keywords: Mapped[list] = mapped_column(JSON, default=list)
+    require_established_store: Mapped[bool] = mapped_column(Boolean, default=True)
+    status: Mapped[str] = mapped_column(String(16), default="ACTIVE")  # ACTIVE | REVOKED
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    revoked_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+
+
+class SchemaMigration(Base):
+    __tablename__ = "schema_migrations"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    applied_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)

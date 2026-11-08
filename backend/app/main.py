@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -9,12 +8,18 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import mock_paypal, routes
+from app.api import account_routes, mock_paypal, routes
 from app.core.config import get_settings
 from app.database.session import init_db
-from app.orchestrator.service import ServiceError, resume_incomplete
+from app.orchestrator.service import ServiceError
 from app.orchestrator.state_machine import InvalidTransition
-from app.security.auth import JsonFormatter, RateLimitMiddleware, RedactSecretsFilter, SecurityHeadersMiddleware
+from app.security.auth import (
+    JsonFormatter,
+    RateLimitMiddleware,
+    RedactSecretsFilter,
+    SecurityHeadersMiddleware,
+    TracingMiddleware,
+)
 
 log = logging.getLogger("checkmate")
 
@@ -27,7 +32,7 @@ def configure_logging() -> None:
     root.handlers = [handler]
     root.setLevel(logging.INFO)
     # httpx logs full request URLs at INFO; SerpAPI takes its key as a query parameter.
-    for noisy in ("httpx", "httpcore"):
+    for noisy in ("httpx", "httpcore", "uvicorn.access"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
     for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
         lg = logging.getLogger(name)
@@ -50,8 +55,10 @@ async def lifespan(app: FastAPI):
     llm = get_container().llm.status()
     log.info("LLM provider: %s (%s), PayPal: %s", llm["provider"], llm.get("model") or "deterministic only",
              s.paypal_mode)
-    threading.Thread(target=resume_incomplete, name="resume-workflows", daemon=True).start()
     from app.orchestrator import jobs
+    from app.security.signing import key_id
+
+    log.info("Signing key id %s", key_id())
 
     jobs.start()
     yield
@@ -64,8 +71,9 @@ def create_app() -> FastAPI:
                   description="Autonomous AI commerce & purchase integrity platform")
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(RateLimitMiddleware, per_minute=s.rate_limit_per_minute)
-    app.add_middleware(CORSMiddleware, allow_origins=list(s.cors_origins), allow_credentials=False,
-                       allow_methods=["GET", "POST"], allow_headers=["Authorization", "Content-Type"])
+    app.add_middleware(CORSMiddleware, allow_origins=list(s.allowed_origins), allow_credentials=True,
+                       allow_methods=["GET", "POST"], allow_headers=["Authorization", "Content-Type", "traceparent"])
+    app.add_middleware(TracingMiddleware)
 
     @app.exception_handler(ServiceError)
     async def _service_error(_: Request, exc: ServiceError):
@@ -86,6 +94,7 @@ def create_app() -> FastAPI:
         return {"status": "ok"}
 
     app.include_router(routes.router)
+    app.include_router(account_routes.router)
     if s.paypal_mode == "mock":
         app.include_router(mock_paypal.router)
     return app

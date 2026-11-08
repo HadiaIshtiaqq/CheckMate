@@ -400,8 +400,9 @@ export function OfferCards({ evaluations, selectedId, onSelect, busy = false, ca
             <article key={c.id} className={`rounded-2xl border p-4 transition ${selected ? "border-indigo-300 bg-indigo-50/40 ring-2 ring-indigo-200 dark:border-indigo-800 dark:bg-indigo-950/20 dark:ring-indigo-900" : "border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"} ${e.status !== "PASS" && !selected ? "opacity-90" : ""}`}>
               <div className="flex flex-wrap items-start gap-3">
                 {c.thumbnail ? (
+                  // Served through CHECKMATE's image proxy so the browser never contacts the image host.
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={c.thumbnail} alt="" loading="lazy" referrerPolicy="no-referrer"
+                  <img src={`/api/v1/images/${c.id}`} alt="" loading="lazy"
                        className="h-14 w-14 shrink-0 rounded-xl bg-white object-contain ring-1 ring-slate-200 dark:ring-slate-700" />
                 ) : (
                   <span className={`grid h-12 w-12 shrink-0 place-items-center rounded-xl ${e.status === "PASS" ? "bg-gradient-to-br from-indigo-500 to-violet-500 text-white" : "bg-slate-100 text-slate-400 dark:bg-slate-800"}`}>
@@ -423,8 +424,8 @@ export function OfferCards({ evaluations, selectedId, onSelect, busy = false, ca
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="text-lg font-extrabold tabular-nums">{e.cost?.total ? money(e.cost.total, e.cost.currency) : <span className="text-amber-600">Unknown</span>}</div>
-                  <div className="text-[11px] text-slate-500">{e.cost?.total ? `total · item ${money(c.price, c.currency)}` : c.external ? `listed ${money(c.price, c.currency)} + tax` : `≥ ${money(e.cost?.known_subtotal, e.cost?.currency)} known`}</div>
+                  <div className="text-lg font-extrabold tabular-nums">{e.cost?.total ? money(e.cost.total, e.cost.currency) : c.external ? money(c.price, c.currency) : <span className="text-amber-600">Unknown</span>}</div>
+                  <div className="text-[11px] text-slate-500">{e.cost?.total ? `total · item ${money(c.price, c.currency)}` : c.external ? "listed price · tax added at the store" : `≥ ${money(e.cost?.known_subtotal, e.cost?.currency)} known`}</div>
                   {c.delivery_text && <div className="text-[11px] text-slate-500">{c.delivery_text}</div>}
                 </div>
                 <TriBadge value={e.status} />
@@ -444,7 +445,7 @@ export function OfferCards({ evaluations, selectedId, onSelect, busy = false, ca
                 <button onClick={() => setOpen(isOpen ? null : c.id)} className="flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-500 dark:text-indigo-400" aria-expanded={isOpen}>
                   <ChevronDown size={14} className={`transition ${isOpen ? "rotate-180" : ""}`} />{isOpen ? "Hide evidence" : "Show evidence"}
                 </button>
-                {c.external && c.product_url && <a href={c.product_url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-xs font-semibold text-slate-600 hover:text-indigo-600 dark:text-slate-300">View listing <ArrowRight size={12} /></a>}
+                {c.external && c.product_url && <a href={c.product_url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-xs font-semibold text-slate-600 hover:text-indigo-600 dark:text-slate-300">View on Google Shopping <ArrowRight size={12} /></a>}
                 {c.external && c.retrieved_at && <span className="text-[11px] text-slate-400">price as of {new Date(c.retrieved_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</span>}
                 {canSwitch && onSelect && !selected && c.external && e.status !== "FAIL" && (
                   <button className="btn-secondary ml-auto py-1 text-xs" disabled={busy} onClick={() => onSelect(c.id)}>Use this offer</button>
@@ -524,11 +525,13 @@ export function ContractCard({ contract, state, busy, onApprove, onRevoke }: {
         <div className="mt-4">
           {contract.approved ? (
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="chip bg-emerald-50 py-1.5 text-sm font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/20 dark:bg-emerald-950 dark:text-emerald-300"><Check size={14} strokeWidth={3} /> Approved by you</span>
+              <span className="chip bg-emerald-50 py-1.5 text-sm font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/20 dark:bg-emerald-950 dark:text-emerald-300" title="Approval is bound to this version and hash, and signed by the server key">
+                <Check size={14} strokeWidth={3} /> {contract.approved_by?.startsWith("mandate:") ? "Approved under your mandate" : "Approved by you"} · signed
+              </span>
               {editable && <button className="btn-danger py-1.5" disabled={busy} onClick={onRevoke}>Revoke</button>}
             </div>
           ) : editable ? (
-            <button className="btn-primary w-full py-2.5" disabled={busy} onClick={onApprove}><Check size={16} /> Approve contract v{contract.version}</button>
+            <button className="btn-primary w-full py-2.5" disabled={busy} onClick={onApprove}><Check size={16} /> Approve {t.purchase_channel === "external_store" ? "plan" : "contract"} v{contract.version}</button>
           ) : (
             <span className="chip bg-slate-100 text-slate-600 dark:bg-slate-800">Status: {contract.approval_status.toLowerCase()}</span>
           )}
@@ -773,9 +776,10 @@ export function AgentTimeline({ events, runs, chainOk }: { events: WfEvent[]; ru
 export { Fragment };
 
 /* ====================================================== store purchase */
-export function StorePurchaseCard({ contract, state, busy, onReport }: {
+export function StorePurchaseCard({ contract, state, busy, onReport, onRefresh, onReceipt }: {
   contract: Contract; state: string; busy: boolean;
   onReport: (r: { amount: string; currency: string; confirmations: Record<string, boolean>; order_reference: string }) => void;
+  onRefresh: () => void; onReceipt: (f: File) => void;
 }) {
   const t = contract.terms;
   const items = (t.checklist ?? []).filter((i) => !i.auto);
@@ -793,7 +797,12 @@ export function StorePurchaseCard({ contract, state, busy, onReport }: {
         Listed at <b>{money(t.unit_price, t.currency)}</b>{t.price_as_of && <> on {new Date(t.price_as_of).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</>} (Google Shopping).
         Prices change; check the store's final total before you pay.
       </p>
-      {t.store_url && <a className="btn-primary mt-3 w-full" href={t.store_url} target="_blank" rel="noreferrer"><Store size={16} /> Open the listing</a>}
+      <div className="mt-3 flex gap-2">
+        {t.store_url && <a className="btn-primary flex-1" href={t.store_url} target="_blank" rel="noreferrer"><Store size={16} /> Open the listing</a>}
+        <button className="btn-secondary" disabled={busy || state !== "CONTRACT_CREATED"} onClick={onRefresh} title="Re-checks the price with a new search (uses one SerpAPI search)">
+          <Refresh size={15} /> Refresh price
+        </button>
+      </div>
 
       <div className="mt-5">
         <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-500">Check these on the store's page</div>
@@ -833,6 +842,15 @@ export function StorePurchaseCard({ contract, state, busy, onReport }: {
             <input className="input mt-1" value={ref} maxLength={100} disabled={!canReport} onChange={(e) => setRef(e.target.value)} />
           </label>
         </div>
+        <label className="mt-3 block text-xs text-slate-500">Receipt or order confirmation (optional: PDF, PNG, JPEG, WebP · max 5 MB)
+          <input type="file" accept="application/pdf,image/png,image/jpeg,image/webp" disabled={!canReport || busy}
+                 className="mt-1 block w-full text-xs file:mr-3 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-xs file:font-semibold dark:file:bg-slate-800"
+                 onChange={(e) => { const f = e.target.files?.[0]; if (f) onReceipt(f); e.currentTarget.value = ""; }} />
+        </label>
+        {contract.receipt && (
+          <p className="mt-1 flex items-center gap-1 text-xs text-emerald-700 dark:text-emerald-300"><Check size={12} strokeWidth={3} />
+            {contract.receipt.filename} attached ({Math.max(1, Math.round(contract.receipt.size / 1024))} KB, SHA-256 {contract.receipt.sha256.slice(0, 10)}…)</p>
+        )}
         {over && <p className="mt-2 text-xs font-semibold text-rose-600">That's above your approved maximum; it will be recorded as a discrepancy.</p>}
         <button className="btn-primary mt-3 w-full" disabled={!canReport || busy || !validAmount || !answered}
                 onClick={() => onReport({ amount: amount.trim(), currency: t.currency, order_reference: ref.trim(),

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
-import { api, API_URL, getToken } from "@/lib/api";
+import { api } from "@/lib/api";
 import { Card, Field, TriIcon, fmtTime, money, shortHash } from "@/components/ui";
 import { Alert, ArrowLeft, Award, Check, CreditCard, Download, FileText, Hash, Lock, Package, Receipt, ShieldCheck, Sparkles, Store } from "@/components/icons";
 
@@ -22,13 +22,15 @@ export default function PassportPage({ params }: { params: { id: string } }) {
   const [pp, setPp] = useState<Passport | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [check, setCheck] = useState<{ valid: boolean; key_id: string; [k: string]: unknown } | null>(null);
 
   useEffect(() => {
     api<Passport>(`/api/v1/passports/${params.id}`).then(setPp).catch((e) => setErr(e.message));
+    api<{ valid: boolean; key_id: string }>(`/api/v1/passports/${params.id}/verify`).then(setCheck).catch(() => setCheck(null));
   }, [params.id]);
 
   const download = async () => {
-    const r = await fetch(`${API_URL}/api/v1/passports/${params.id}/export`, { headers: { Authorization: `Bearer ${getToken()}` } });
+    const r = await fetch(`/api/v1/passports/${params.id}/export`, { credentials: "same-origin" });
     const blob = await r.blob();
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
@@ -90,6 +92,13 @@ export default function PassportPage({ params }: { params: { id: string } }) {
                   sub={`${b.checkout_verification.conditions.length} ${store ? "items" : "conditions"}`} />
           </div>
 
+          {check && (
+            <div className={`mt-4 inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold ring-1 ring-inset ${check.valid ? "bg-emerald-50 text-emerald-700 ring-emerald-600/20 dark:bg-emerald-950 dark:text-emerald-300" : "bg-rose-50 text-rose-700 ring-rose-600/20 dark:bg-rose-950 dark:text-rose-300"}`}
+                 title="Checks the passport hash, the server signature, the approval signature and the audit chain">
+              {check.valid ? <Check size={14} strokeWidth={3} /> : <Alert size={14} />}
+              {check.valid ? "Signature and audit chain verified" : "Verification FAILED: this record was altered"} · key {check.key_id}
+            </div>
+          )}
           <button onClick={copyHash} className="mt-5 flex max-w-full items-center gap-2 rounded-xl bg-slate-100 px-3 py-2 text-left text-xs text-slate-600 transition hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300" title="Copy passport hash">
             <Hash size={14} className="shrink-0" /><span className="shrink-0 font-semibold">Passport SHA-256</span>
             <span className="mono truncate">{pp.passport_hash}</span>

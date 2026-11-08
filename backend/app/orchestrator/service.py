@@ -18,6 +18,8 @@ from app.agents.contract_agent import build_contract_terms, rank_eligible
 from app.agents.payment_agent import PaymentAgent, PaymentOutcome, build_order_payload
 from app.core.util import hash_obj, money, money_str, new_id, to_jsonable, utcnow
 from app.database.models import (
+    PurchasingMandate,
+    ReceiptFile,
     AgentRun,
     CheckoutSnapshotRow,
     CheckoutVerificationRow,
@@ -48,7 +50,7 @@ from app.services.container import Container, get_container
 
 log = logging.getLogger("checkmate.orchestrator")
 
-AUTONOMY_MODES = ("ASSISTED", "MONITORING_ONLY")
+AUTONOMY_MODES = ("ASSISTED", "MONITORING_ONLY", "MANDATE")
 ACTIVE_PAYMENT = ("CREATING", "APPROVAL_PENDING", "APPROVED", "CAPTURING", "UNCERTAIN", "PENDING", "CAPTURED")
 CONTRACT_STATES = (WS.CONTRACT_CREATED.value, WS.CHECKOUT_BLOCKED.value, WS.PAYMENT_PENDING_APPROVAL.value,
                    WS.PAYMENT_FAILED.value)
@@ -295,8 +297,10 @@ def _draft_contract(db: Session, wf: Workflow, c: Container, intent: ShoppingInt
                              f"{unknown} had mandatory information that could not be verified (UNKNOWN).")
         set_state(db, wf, WS.EVIDENCE_INCOMPLETE, wf.blocked_reason)
         return
-    create_contract(db, wf, run.value)
+    row = create_contract(db, wf, run.value)
     set_state(db, wf, WS.CONTRACT_CREATED, "Purchase contract ready for your approval")
+    if wf.autonomy_mode == "MANDATE":
+        apply_mandate(db, wf, row)
 
 
 # ============================================================== contracts ====
@@ -365,13 +369,28 @@ def approve_contract(db: Session, user_id: str, contract_id: str, presented_hash
     existing = active_approval(db, row)
     if existing:
         return existing
+    return record_approval(db, wf, row, user_id, "user", f"You approved contract v{row.version}")
+
+
+def approval_payload(a: ContractApproval) -> dict:
+    return {"approval_id": a.id, "contract_id": a.contract_id, "version": a.version, "contract_hash": a.contract_hash,
+            "user_id": a.user_id, "source": a.source or "user", "approved_at": a.created_at.isoformat()}
+
+
+def record_approval(db: Session, wf: Workflow, row: PurchaseContract, user_id: str, source: str,
+                    message: str) -> ContractApproval:
+    """Creates an approval bound to the exact contract version + hash, signed with
+    the server key (kept outside the database) so it can't be forged by DB edits."""
+    from app.security.signing import sign
+
     a = ContractApproval(id=new_id("apv"), contract_id=row.id, version=row.version, contract_hash=row.contract_hash,
-                         user_id=user_id)
+                         user_id=user_id, source=source, created_at=utcnow())
+    a.signature = sign(approval_payload(a))
     row.approval_status = "APPROVED"
     db.add(a)
     db.commit()
-    emit(db, wf, "contract.approved", f"You approved contract v{row.version}",
-         payload={"contract_id": row.id, "version": row.version, "contract_hash": row.contract_hash})
+    emit(db, wf, "contract.approved", message, payload={"contract_id": row.id, "version": row.version,
+                                                        "contract_hash": row.contract_hash, "source": source})
     return a
 
 
@@ -892,7 +911,9 @@ def build_passport(db: Session, wf: Workflow, p: PaymentTransaction, terms: Cont
         "contract": {"contract_id": row.id, "version": p.contract_version, "contract_hash": p.contract_hash,
                      "hash_algorithm": HASH_ALGORITHM, "terms": terms.model_dump(mode="json"),
                      "approved_at": approval.created_at.isoformat() if approval else None,
-                     "approved_hash": approval.contract_hash if approval else None, "history": history},
+                     "approved_hash": approval.contract_hash if approval else None, "history": history,
+                     "approval": ({**approval_payload(approval), "signature": approval.signature}
+                                  if approval else None)},
         "checkout_verification": {"verification_id": ver.id, "result": ver.status, "conditions": ver.conditions,
                                   "explanation": ver.explanation, "snapshot": snap.model_dump(mode="json")},
         "payment": {"environment": p.environment, "paypal_order_id": p.paypal_order_id,
@@ -907,7 +928,8 @@ def build_passport(db: Session, wf: Workflow, p: PaymentTransaction, terms: Cont
         "audit_chain": {"head_hash": events[-1].hash if events else None, "events": len(events),
                         "verified": chain_ok},
     }
-    passport = PurchasePassportRow(id=pid, workflow_id=wf.id, user_id=wf.user_id, body=to_jsonable(body),
+    body = seal_passport(body)
+    passport = PurchasePassportRow(id=pid, workflow_id=wf.id, user_id=wf.user_id, body=body,
                                    passport_hash=hash_obj(body))
     db.add(passport)
     db.commit()
@@ -1133,7 +1155,8 @@ def report_store_purchase(db: Session, user_id: str, contract_id: str, *, amount
     known = {i["key"] for i in terms.checklist}
     confirmations = {k: bool(v) for k, v in confirmations.items() if k in known}
     report = {"amount": money_str(amt), "currency": currency, "confirmations": confirmations,
-              "order_reference": (order_reference or "").strip() or None}
+              "order_reference": (order_reference or "").strip() or None,
+              "receipt_file": latest_receipt(db, row.id)}
     emit(db, wf, "purchase.reported", f"You reported buying at {terms.store_name} for {money_str(amt)} {currency}",
          payload=report)
     set_state(db, wf, WS.RECONCILIATION, "Reconciling your store purchase against the approved plan")
@@ -1193,7 +1216,9 @@ def build_store_passport(db: Session, wf: Workflow, row: PurchaseContract, terms
         "contract": {"contract_id": row.id, "version": row.version, "contract_hash": row.contract_hash,
                      "hash_algorithm": HASH_ALGORITHM, "terms": terms.model_dump(mode="json"),
                      "approved_at": approval.created_at.isoformat() if approval else None,
-                     "approved_hash": approval.contract_hash if approval else None, "history": history},
+                     "approved_hash": approval.contract_hash if approval else None, "history": history,
+                     "approval": ({**approval_payload(approval), "signature": approval.signature}
+                                  if approval else None)},
         "checkout_verification": {
             "result": "CONFIRMED_BY_YOU" if all(c["result"] == "PASS" for c in confirm_checks) else
                       ("NOT_MET" if any(c["result"] == "FAIL" for c in confirm_checks) else "INCOMPLETE"),
@@ -1213,8 +1238,218 @@ def build_store_passport(db: Session, wf: Workflow, row: PurchaseContract, terms
         "audit_chain": {"head_hash": events[-1].hash if events else None, "events": len(events),
                         "verified": chain_ok},
     }
-    passport = PurchasePassportRow(id=pid, workflow_id=wf.id, user_id=wf.user_id, body=to_jsonable(body),
+    body = seal_passport(body)
+    passport = PurchasePassportRow(id=pid, workflow_id=wf.id, user_id=wf.user_id, body=body,
                                    passport_hash=hash_obj(body))
     db.add(passport)
     db.commit()
     return passport
+
+
+# ================================================================= sealing ====
+def seal_passport(body: dict) -> dict:
+    """Signs the passport and the audit-chain head with the server key."""
+    from app.security.signing import key_id, sign
+
+    clean = to_jsonable(body)
+    head = {"workflow_id": clean["workflow_id"], "head_hash": clean["audit_chain"]["head_hash"]}
+    clean["seal"] = {"algorithm": "HMAC-SHA256 with a server key kept outside the database", "key_id": key_id(),
+                     "signature": sign(clean), "audit_head_signature": sign(head)}
+    return clean
+
+
+def verify_passport(db: Session, user_id: str, passport_id: str) -> dict:
+    from app.security.signing import verify
+
+    pp = db.get(PurchasePassportRow, passport_id)
+    if not pp or pp.user_id != user_id:
+        raise NotFound("Passport not found")
+    body = dict(pp.body)
+    seal = body.pop("seal", None) or {}
+    events = list_events(db, pp.workflow_id)
+    chain_ok, chain_err = verify_chain(events)
+    head = (body.get("audit_chain") or {}).get("head_hash")
+    approval = (body.get("contract") or {}).get("approval")
+    approval_ok = None
+    if approval:
+        sig = approval.get("signature")
+        approval_ok = verify({k: v for k, v in approval.items() if k != "signature"}, sig)
+    result = {
+        "passport_hash_matches": hash_obj(pp.body) == pp.passport_hash,
+        "passport_signature_valid": verify(body, seal.get("signature")),
+        "audit_head_signature_valid": verify({"workflow_id": body.get("workflow_id"), "head_hash": head},
+                                             seal.get("audit_head_signature")),
+        "audit_chain_intact": chain_ok,
+        "audit_head_present_in_log": any(e.hash == head for e in events),
+        "approval_signature_valid": approval_ok,
+        "key_id": seal.get("key_id"),
+        "detail": chain_err,
+    }
+    result["valid"] = all(v is not False for k, v in result.items() if k not in ("key_id", "detail"))
+    return result
+
+
+# ================================================================ mandates ====
+def create_mandate(db: Session, user_id: str, *, max_per_purchase: str, monthly_cap: str, currency: str,
+                   allowed_stores: list[str], allowed_keywords: list[str], require_established_store: bool,
+                   days: int) -> PurchasingMandate:
+    per, cap = money(max_per_purchase), money(monthly_cap)
+    if per is None or cap is None or per <= 0 or cap <= 0:
+        raise ServiceError("Limits must be positive amounts")
+    if per > cap:
+        raise ServiceError("The per-purchase limit can't exceed the monthly cap")
+    if not 1 <= days <= 90:
+        raise ServiceError("A mandate can last 1 to 90 days")
+    m = PurchasingMandate(id=new_id("mdt"), user_id=user_id, max_per_purchase=money_str(per),
+                          monthly_cap=money_str(cap), currency=currency.upper()[:3],
+                          allowed_stores=[x.strip() for x in allowed_stores if x.strip()][:20],
+                          allowed_keywords=[x.strip().lower() for x in allowed_keywords if x.strip()][:20],
+                          require_established_store=require_established_store,
+                          expires_at=utcnow() + timedelta(days=days))
+    db.add(m)
+    db.commit()
+    return m
+
+
+def month_spend(db: Session, user_id: str, currency: str) -> Decimal:
+    start = utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    total = Decimal("0")
+    for pp in db.scalars(select(PurchasePassportRow).where(PurchasePassportRow.user_id == user_id,
+                                                           PurchasePassportRow.created_at >= start)):
+        pay = (pp.body or {}).get("payment") or {}
+        if pay.get("captured_currency") == currency and pay.get("captured_amount"):
+            total += Decimal(pay["captured_amount"])
+    return money(total)
+
+
+def revoke_mandate(db: Session, user_id: str, mandate_id: str) -> PurchasingMandate:
+    m = db.get(PurchasingMandate, mandate_id)
+    if not m or m.user_id != user_id:
+        raise NotFound("Mandate not found")
+    if m.status == "REVOKED":
+        return m
+    m.status, m.revoked_at = "REVOKED", utcnow()
+    db.commit()
+    for a in db.scalars(select(ContractApproval).where(ContractApproval.source == f"mandate:{m.id}",
+                                                       ContractApproval.status == "ACTIVE")).all():
+        row = db.get(PurchaseContract, a.contract_id)
+        wf = db.get(Workflow, row.workflow_id)
+        if WS(wf.state) in POST_CAPTURE or WS(wf.state) in TERMINAL:
+            continue
+        a.status, a.reason, a.ended_at = "REVOKED", "mandate revoked", utcnow()
+        row.approval_status = "REVOKED"
+        db.commit()
+        emit(db, wf, "contract.approval_revoked", "Approval withdrawn: the mandate that granted it was revoked")
+        if wf.state in (WS.PAYMENT_PENDING_APPROVAL.value, WS.CHECKOUT_BLOCKED.value, WS.PAYMENT_FAILED.value):
+            set_state(db, wf, WS.CONTRACT_CREATED, "Mandate revoked; your approval is needed")
+    return m
+
+
+def apply_mandate(db: Session, wf: Workflow, row: PurchaseContract) -> PurchasingMandate | None:
+    """Mode B: approve the contract on the user's behalf if an active mandate covers it.
+    Payment still needs PayPal buyer approval (demo store) or the user buying at the store."""
+    terms = ContractTerms.model_validate(row.terms)
+    now = utcnow()
+    mandates = db.scalars(select(PurchasingMandate).where(
+        PurchasingMandate.user_id == wf.user_id, PurchasingMandate.status == "ACTIVE",
+        PurchasingMandate.currency == terms.currency, PurchasingMandate.expires_at > now)).all()
+    if not mandates:
+        emit(db, wf, "mandate.not_applied", "No active mandate in this currency; your approval is needed.")
+        return None
+    ev = _selected_evaluation(wf, terms.product_id) or {}
+    level = ((ev.get("seller") or {}).get("evidence_level"))
+    store = (terms.store_name or terms.seller_name or "").lower()
+    text_blob = f"{terms.product_name} {(wf.intent or {}).get('product_description', '')}".lower()
+    spent = month_spend(db, wf.user_id, terms.currency)
+    reasons: list[str] = []
+    for m in mandates:
+        why = []
+        if terms.max_total > money(m.max_per_purchase):
+            why.append(f"max total {terms.max_total} is above the per-purchase limit {m.max_per_purchase}")
+        if spent + terms.max_total > money(m.monthly_cap):
+            why.append(f"would exceed the monthly cap ({spent} already spent of {m.monthly_cap})")
+        if terms.subscription_allowed:
+            why.append("mandates never cover subscriptions")
+        if m.allowed_stores and not any(x.lower() in store for x in m.allowed_stores):
+            why.append(f"store '{terms.store_name or terms.seller_name}' is not in the mandate's store list")
+        if m.allowed_keywords and not any(k in text_blob for k in m.allowed_keywords):
+            why.append("product is outside the mandate's categories")
+        if m.require_established_store and level != "STRONG_EVIDENCE":
+            why.append("seller evidence is not strong")
+        if not why:
+            record_approval(db, wf, row, wf.user_id, f"mandate:{m.id}",
+                            f"Approved automatically under your mandate (limit {m.max_per_purchase} {m.currency}, "
+                            f"{spent} of {m.monthly_cap} used this month)")
+            return m
+        reasons.append("; ".join(why))
+    emit(db, wf, "mandate.not_applied", "Your mandate doesn't cover this purchase: " + " | ".join(reasons),
+         payload={"reasons": reasons})
+    return None
+
+
+# ============================================================ refresh offer ====
+def refresh_offer(db: Session, user_id: str, workflow_id: str) -> dict:
+    """Re-checks a real store's listing price (uses one product search)."""
+    wf = owned_workflow(db, user_id, workflow_id)
+    if wf.state != WS.CONTRACT_CREATED.value or not wf.current_contract_id:
+        raise Conflict("Prices can be refreshed while a purchase plan is open")
+    row = db.get(PurchaseContract, wf.current_contract_id)
+    terms = ContractTerms.model_validate(row.terms)
+    c = get_container()
+    if terms.purchase_channel != "external_store" or c.external is None:
+        raise Conflict("Only real-store offers can be refreshed")
+    fresh = c.external.refresh_listing(terms.product_id)
+    if fresh is None:
+        emit(db, wf, "offer.refreshed", f"The listing no longer appears in Google Shopping results for "
+                                        f"{terms.store_name}; it may be sold out or delisted.", agent_id="monitoring_agent")
+        return {"found": False}
+    price = money(fresh["price"])
+    if fresh.get("currency") != terms.currency or price == terms.unit_price:
+        emit(db, wf, "offer.refreshed", f"Price re-checked: still {price} {fresh.get('currency')}",
+             agent_id="monitoring_agent")
+        return {"found": True, "changed": False, "price": money_str(price)}
+    ship = (fresh.get("terms") or {}).get("shipping_cost")
+    known = money(price * terms.quantity + (money(ship) if ship is not None else Decimal("0")))
+    new_terms = terms.model_copy(update={"unit_price": price, "known_subtotal": known,
+                                         "price_as_of": fresh.get("retrieved_at")})
+    revise_contract(db, wf, row, new_terms, f"Price refreshed from {terms.unit_price} to {price}")
+    return {"found": True, "changed": True, "price": money_str(price)}
+
+
+# ================================================================= receipts ====
+RECEIPT_TYPES = {"application/pdf": (b"%PDF",), "image/png": (b"\x89PNG",), "image/jpeg": (b"\xff\xd8\xff",),
+                 "image/webp": (b"RIFF",)}
+
+
+def save_receipt(db: Session, user_id: str, contract_id: str, filename: str, content_type: str,
+                 data: bytes) -> ReceiptFile:
+    import hashlib
+
+    row, wf = owned_contract(db, user_id, contract_id)
+    if row.terms.get("purchase_channel") != "external_store":
+        raise Conflict("Receipts are attached to real-store purchases")
+    if wf.state != WS.CONTRACT_CREATED.value:
+        raise Conflict("Attach the receipt before reporting the purchase")
+    limit = get_container().settings.receipt_max_bytes
+    if not data or len(data) > limit:
+        raise ServiceError(f"Receipt must be between 1 byte and {limit // (1024 * 1024)} MB")
+    ctype = (content_type or "").split(";")[0].strip().lower()
+    if ctype not in RECEIPT_TYPES or not any(data.startswith(m) for m in RECEIPT_TYPES[ctype]):
+        raise ServiceError("Receipt must be a PDF, PNG, JPEG or WebP file")
+    digest = hashlib.sha256(data).hexdigest()
+    rf = ReceiptFile(id=new_id("rcf"), contract_id=row.id, user_id=user_id,
+                     filename=(filename or "receipt")[:200], content_type=ctype, size=len(data), sha256=digest, data=data)
+    db.add(rf)
+    db.commit()
+    emit(db, wf, "receipt.uploaded", f"Receipt attached ({rf.filename}, {len(data) // 1024} KB)",
+         payload={"receipt_id": rf.id, "sha256": digest, "size": len(data)})
+    return rf
+
+
+def latest_receipt(db: Session, contract_id: str) -> dict | None:
+    rf = db.scalars(select(ReceiptFile).where(ReceiptFile.contract_id == contract_id)
+                    .order_by(ReceiptFile.created_at.desc())).first()
+    if not rf:
+        return None
+    return {"receipt_id": rf.id, "filename": rf.filename, "content_type": rf.content_type, "size": rf.size,
+            "sha256": rf.sha256, "uploaded_at": rf.created_at.isoformat()}

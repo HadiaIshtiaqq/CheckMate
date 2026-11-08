@@ -1,0 +1,6 @@
+# HTTPS front door. Set SECURE_COOKIES=true and FRONTEND_URL/CORS_ORIGINS to https://localhost when using it.
+localhost {
+	reverse_proxy frontend:3000 {
+		header_up X-Forwarded-For {remote_host}
+	}
+}

@@ -16,7 +16,7 @@ from app.database.models import (
     Workflow,
     WorkflowEvent,
 )
-from app.orchestrator.service import active_approval, latest_verification, near_miss_suggestions
+from app.orchestrator.service import active_approval, latest_receipt, latest_verification, near_miss_suggestions
 from app.schemas.domain import CandidateEvaluation, ShoppingIntent
 
 
@@ -48,7 +48,10 @@ def contract_view(db: Session, row: PurchaseContract) -> dict:
         "versions": [{"version": v.version, "contract_hash": v.contract_hash, "reason": v.change_reason,
                       "created_at": v.created_at.isoformat()} for v in versions],
         "approvals": [{"id": a.id, "version": a.version, "contract_hash": a.contract_hash, "status": a.status,
-                       "reason": a.reason, "created_at": a.created_at.isoformat()} for a in approvals],
+                       "reason": a.reason, "source": a.source or "user", "signed": bool(a.signature),
+                       "created_at": a.created_at.isoformat()} for a in approvals],
+        "approved_by": (appr.source or "user") if appr else None,
+        "receipt": latest_receipt(db, row.id),
     }
 
 

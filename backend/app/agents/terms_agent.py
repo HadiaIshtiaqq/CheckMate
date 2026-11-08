@@ -126,7 +126,8 @@ class TermsAgent(BaseAgent):
 
         # LLM only for fields still unknown; accepted only if the number appears in the text.
         unknown_now = [f for f in FIELDS if values.get(f) is None and sources.get(f) != "conflicting"]
-        if unknown_now and text and self.tools.can("llm.structured"):
+        # Only worth an LLM call when there is substantial policy text (real listings carry a line or two).
+        if unknown_now and len(text) >= 200 and self.tools.can("llm.structured"):
             llm = self.tools.call("llm.structured", "Extract purchase terms from this merchant policy.",
                                   wrap_untrusted(text), LLMTerms)
             if llm is not None:

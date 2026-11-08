@@ -47,6 +47,9 @@ class CatalogRouter:
             raise ProductSourceError(errors[0])
         return results
 
+    def source_available(self, product_id: str) -> bool:
+        return self._for(product_id) is not None
+
     def product_details(self, product_id: str) -> dict | None:
         a = self._for(product_id)
         return a.get_product_details(product_id) if a else None

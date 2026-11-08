@@ -49,9 +49,16 @@ class ProductSourceError(RuntimeError):
     """A product source failed. The message is safe to show to the user (no keys)."""
 
 
+PREFIX_CURRENCY = {"US$": "USD", "CA$": "CAD", "C$": "CAD", "AU$": "AUD", "A$": "AUD", "NZ$": "NZD", "HK$": "HKD",
+                   "S$": "SGD", "Rs": "INR"}
+
+
 def currency_from_price(price_text: str | None, gl: str) -> str | None:
     if not price_text:
         return None
+    for prefix, cur in PREFIX_CURRENCY.items():
+        if price_text.strip().startswith(prefix):
+            return cur
     for sym, cur in SYMBOL_CURRENCY.items():
         if sym in price_text:
             return cur
@@ -196,6 +203,21 @@ class SerpApiShoppingAdapter(MerchantAdapter):
                 else:
                     db.add(ExternalOffer(id=l["id"], data=l, retrieved_at=utcnow()))
             db.commit()
+
+    def refresh_listing(self, product_id: str) -> dict | None:
+        """Re-runs the original search without the cache (one paid search) and returns
+        the same listing if it still appears."""
+        stored = self._stored(product_id)
+        if not stored:
+            return None
+        q, gl = stored.get("category") or "", stored.get("gl") or "us"
+        with self._lock:
+            self._cache.pop((q.lower(), gl), None)
+        currency = {v: k for k, v in GL_BY_CURRENCY.items()}.get(gl, "USD")
+        for listing in self.search_products(q, None, currency=currency):
+            if listing["id"] == product_id:
+                return listing
+        return None
 
     # ------------------------------------------------- lookups (stored listings)
     def _stored(self, product_id: str) -> dict | None:

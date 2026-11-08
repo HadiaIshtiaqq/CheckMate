@@ -30,7 +30,8 @@ class Container:
         # Real stores via Google Shopping when a SerpAPI key is set. The fictional demo store is only
         # used when explicitly enabled (tests, PayPal checkout demonstration).
         self.merchant = DemoMerchantAdapter(SessionLocal) if s.demo_catalog_enabled else None
-        self.external = (SerpApiShoppingAdapter(s.serpapi_key, SessionLocal, cache_ttl=s.serpapi_cache_seconds)
+        self.external = (SerpApiShoppingAdapter(s.serpapi_key, SessionLocal, cache_ttl=s.serpapi_cache_seconds,
+                                                max_results=s.serpapi_max_results)
                          if s.serpapi_key else None)
         self.catalog = CatalogRouter(self.merchant, self.external)
         self.llm = build_llm(s)
@@ -44,6 +45,7 @@ class Container:
             "llm.structured": self.llm.structured,
             "catalog.search": cat.search,
             "catalog.product_details": cat.product_details,
+            "catalog.source_available": cat.source_available,
             "merchant.seller_info": cat.seller_info,
             "merchant.terms": cat.terms,
             "merchant.quote_tax": cat.quote_tax,

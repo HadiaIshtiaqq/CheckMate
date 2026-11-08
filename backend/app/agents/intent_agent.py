@@ -265,6 +265,9 @@ SYSTEM_PROMPT = (
 )
 
 
+VERIFIABLE_SPECS = {"ram_gb", "storage_gb", "wireless", "noise_cancelling", "mechanical", "form"}
+
+
 def merge_llm(rules: ShoppingIntent, llm: LLMIntent) -> ShoppingIntent:
     """The LLM may add descriptive detail; deterministic rules keep authority over
     money, currency, and anything that would loosen a restriction."""
@@ -280,7 +283,9 @@ def merge_llm(rules: ShoppingIntent, llm: LLMIntent) -> ShoppingIntent:
                 out.category = c
     for s in llm.specifications:
         key = re.sub(r"[^a-z0-9_]", "_", s.key.lower())[:40]
-        if key not in out.specifications and s.value and s.value.lower() in low:
+        # Only spec types CHECKMATE can check against a listing; anything else would make every
+        # offer UNKNOWN without adding a verifiable requirement.
+        if key in VERIFIABLE_SPECS and key not in out.specifications and s.value and s.value.lower() in low:
             out.specifications[key] = s.value
     out.preferred_brands = sorted(set(out.preferred_brands) | {b for b in llm.preferred_brands if b.lower() in low})
     if llm.max_budget is not None:

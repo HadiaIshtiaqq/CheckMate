@@ -1,12 +1,7 @@
-export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-
-// Demo access token for this single-user build. It is configured at build time and is not a substitute
-// for real sign-in; replace with an identity provider before exposing CHECKMATE to other people.
-const DEMO_TOKEN = process.env.NEXT_PUBLIC_DEMO_TOKEN ?? "dev-token-alice";
-
-export function getToken(): string {
-  return DEMO_TOKEN;
-}
+// The browser only ever talks to this site's own origin. Next.js forwards /api/* to the
+// backend (BACKEND_URL, read when the frontend starts), so session cookies stay first-party
+// and HttpOnly, and no credentials are compiled into the JavaScript bundle.
+export const API_URL = "";
 
 export class ApiError extends Error {
   constructor(public status: number, public detail: unknown) {
@@ -18,24 +13,42 @@ export class ApiError extends Error {
   }
 }
 
+const PUBLIC_PATHS = ["/login"];
+
 export async function api<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
+  const isForm = typeof FormData !== "undefined" && init.body instanceof FormData;
   const res = await fetch(`${API_URL}${path}`, {
     ...init,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${getToken()}`,
-      ...(init.headers ?? {}),
-    },
+    credentials: "same-origin",
+    headers: { ...(isForm ? {} : { "Content-Type": "application/json" }), ...(init.headers ?? {}) },
     cache: "no-store",
   });
   const text = await res.text();
-  const body = text ? JSON.parse(text) : null;
+  let body: any = null;
+  try {
+    body = text ? JSON.parse(text) : null;
+  } catch {
+    body = { detail: text.slice(0, 200) };
+  }
+  if (res.status === 401 && typeof window !== "undefined" && !PUBLIC_PATHS.includes(window.location.pathname)
+      && !path.startsWith("/api/v1/auth/")) {
+    const next = encodeURIComponent(window.location.pathname + window.location.search);
+    window.location.href = `/login?next=${next}`;
+  }
   if (!res.ok) throw new ApiError(res.status, body?.detail ?? body);
   return body as T;
 }
 
 export const post = <T = unknown>(path: string, body?: unknown) =>
-  api<T>(path, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) });
+  api<T>(path, { method: "POST", body: body === undefined ? undefined : body instanceof FormData ? body : JSON.stringify(body) });
+
+export interface Account { id: string; email: string | null; display_name: string }
+
+export interface Mandate {
+  id: string; max_per_purchase: string; monthly_cap: string; currency: string; allowed_stores: string[];
+  allowed_keywords: string[]; require_established_store: boolean; status: string; expires_at: string;
+  created_at: string; spent_this_month: string;
+}
 
 // ------------------------------------------------------------------ types ---
 export type Tri = "PASS" | "FAIL" | "UNKNOWN";
@@ -97,7 +110,9 @@ export interface Contract {
   id: string; version: number; contract_hash: string; approval_status: string; approved: boolean;
   expires_at: string; terms: ContractTerms;
   versions: { version: number; contract_hash: string; reason: string; created_at: string }[];
-  approvals: { id: string; version: number; status: string; reason: string | null; created_at: string }[];
+  approvals: { id: string; version: number; status: string; reason: string | null; source: string; signed: boolean; created_at: string }[];
+  approved_by: string | null;
+  receipt: { receipt_id: string; filename: string; size: number; sha256: string; uploaded_at: string } | null;
 }
 
 export interface Verification {

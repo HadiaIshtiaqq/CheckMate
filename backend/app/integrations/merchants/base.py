@@ -58,12 +58,3 @@ class MerchantAdapter(ABC):
 
     def get_receipt(self, checkout_id: str) -> dict | None:
         return self._unsupported("get_receipt")
-
-
-class Channel3Adapter(MerchantAdapter):
-    """Placeholder for Channel3 product discovery. It declares no supported
-    operations until a real integration is written against Channel3's API, so
-    the orchestrator never silently relies on it."""
-
-    adapter_id = "channel3"
-    supported_operations = frozenset()

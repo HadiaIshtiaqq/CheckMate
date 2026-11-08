@@ -185,7 +185,7 @@ class ReconciliationAgent(BaseAgent):
         receipt = {"source_label": "Self-reported by you (CHECKMATE did not process this payment)",
                    "store": contract.store_name, "total": str(amount), "currency": cur,
                    "order_reference": rep.get("order_reference"), "reported_at": utcnow().isoformat(),
-                   "store_url": contract.store_url}
+                   "store_url": contract.store_url, "file": rep.get("receipt_file")}
         report = ReconciliationReport(status=status, checks=checks, discrepancies=discrepancies, paypal_record={},
                                       receipt=receipt, notes=["Amount and confirmations are as you reported them."])
         return AgentOutput(value=report, evidence=[EvidenceRef(source="You (self-reported)",

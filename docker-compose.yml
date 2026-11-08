@@ -21,6 +21,9 @@ services:
       DATABASE_URL: postgresql+psycopg://checkmate:checkmate@db:5432/checkmate
       BACKEND_PUBLIC_URL: http://localhost:8000
       FRONTEND_URL: http://localhost:3000
+      TRUSTED_PROXIES: 127.0.0.1,::1,frontend
+    volumes:
+      - signing-keys:/app/.keys
     ports:
       - "8000:8000"
     depends_on:
@@ -28,14 +31,25 @@ services:
         condition: service_healthy
 
   frontend:
-    build:
-      context: ./frontend
-      args:
-        NEXT_PUBLIC_API_URL: http://localhost:8000
+    build: ./frontend
+    environment:
+      BACKEND_URL: http://backend:8000
     ports:
       - "3000:3000"
     depends_on:
       - backend
 
+  # Optional HTTPS front door (Caddy issues a local certificate): docker compose --profile https up
+  https:
+    image: caddy:2.8-alpine
+    profiles: ["https"]
+    ports:
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - frontend
+
 volumes:
   pgdata:
+  signing-keys:

@@ -19,7 +19,7 @@ class CatalogRouter:
     def sources(self) -> list[str]:
         out = []
         if self.external:
-            out.append("Google Shopping (real stores, via SerpAPI)")
+            out.append("Google Shopping, Amazon, eBay and Walmart (real stores, via SerpAPI)")
         if self.demo:
             out.append("Demo store (fictional, for testing)")
         return out
@@ -30,7 +30,8 @@ class CatalogRouter:
         return self.demo
 
     def search(self, query: str | None, category: str | None, budget: str | None = None,
-               currency: str | None = None, specs: dict | None = None, color: str | None = None) -> list[dict]:
+               currency: str | None = None, specs: dict | None = None, color: str | None = None,
+               market: str | None = None, depth: str = "standard", alt_query: str | None = None) -> list[dict]:
         if not self.external and not self.demo:
             raise ProductSourceError(NO_SOURCE)
         results: list[dict] = []
@@ -38,7 +39,8 @@ class CatalogRouter:
         if self.external:
             try:
                 results += self.external.search_products(query, category, budget=budget, currency=currency,
-                                                         specs=specs, color=color)
+                                                         specs=specs, color=color, market=market, depth=depth,
+                                                         alt_query=alt_query)
             except ProductSourceError as e:
                 errors.append(str(e))
         if self.demo:
@@ -55,7 +57,7 @@ class CatalogRouter:
         return a.get_product_details(product_id) if a else None
 
     def seller_info(self, seller_id: str) -> dict | None:
-        if seller_id.startswith("store:"):
+        if seller_id.startswith(("store:", "ebay:")):
             return self.external.get_seller_information(seller_id) if self.external else None
         return self.demo.get_seller_information(seller_id) if self.demo else None
 

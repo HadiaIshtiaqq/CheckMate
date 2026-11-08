@@ -107,59 +107,156 @@ def safe_url(url: str | None) -> str | None:
     return url if isinstance(url, str) and url.startswith(("https://", "http://")) else None
 
 
+
+# ======================================================== markets & engines ===
+MARKETS: dict[str, dict] = {
+    "us": {"name": "United States", "currency": "USD", "gl": "us", "amazon": "amazon.com", "ebay": "ebay.com",
+           "walmart": True},
+    "uk": {"name": "United Kingdom", "currency": "GBP", "gl": "uk", "amazon": "amazon.co.uk", "ebay": "ebay.co.uk"},
+    "ca": {"name": "Canada", "currency": "CAD", "gl": "ca", "amazon": "amazon.ca", "ebay": "ebay.ca"},
+    "au": {"name": "Australia", "currency": "AUD", "gl": "au", "amazon": "amazon.com.au", "ebay": "ebay.com.au"},
+    "de": {"name": "Germany", "currency": "EUR", "gl": "de", "amazon": "amazon.de", "ebay": "ebay.de"},
+    "fr": {"name": "France", "currency": "EUR", "gl": "fr", "amazon": "amazon.fr", "ebay": "ebay.fr"},
+    "in": {"name": "India", "currency": "INR", "gl": "in", "amazon": "amazon.in"},
+}
+MARKET_BY_CURRENCY = {"USD": "us", "GBP": "uk", "CAD": "ca", "AUD": "au", "EUR": "de", "INR": "in"}
+ENGINE_LABELS = {"google_shopping": "Google Shopping", "amazon": "Amazon", "ebay": "eBay", "walmart": "Walmart"}
+DEPTHS = ("quick", "standard", "wide")
+USED_CONDITION = re.compile(r"\b(pre-?owned|used|refurbished|renewed|open box|for parts|seller refurbished)\b", re.I)
+
+
+def market_for(market: str | None, currency: str | None) -> str:
+    if market in MARKETS:
+        return market
+    return MARKET_BY_CURRENCY.get((currency or "USD").upper(), "us")
+
+
+def search_plan(market: str, depth: str, query: str, alt_query: str | None = None) -> list[tuple[str, str]]:
+    """(engine, query) pairs for one request. Each pair is one SerpAPI search."""
+    m = MARKETS[market]
+    plan = [("google_shopping", query)]
+    if depth in ("standard", "wide"):
+        if m.get("amazon"):
+            plan.append(("amazon", query))
+        if m.get("ebay"):
+            plan.append(("ebay", query))
+    if depth == "wide":
+        if m.get("walmart"):
+            plan.append(("walmart", query))
+        if alt_query and alt_query.strip().lower() != query.strip().lower():
+            plan.append(("google_shopping", alt_query))
+    return plan
+
+
+def search_options() -> dict:
+    return {"markets": [{"code": k, "name": v["name"], "currency": v["currency"],
+                         "sources": [ENGINE_LABELS[e] for e, _ in search_plan(k, "wide", "q")]}
+                        for k, v in MARKETS.items()],
+            "depths": {d: {k: len({e for e, _ in search_plan(k, d, "a", "b")}) +
+                           (1 if d == "wide" else 0) for k in MARKETS} for d in DEPTHS}}
+
+
+def _num(v) -> Decimal | None:
+    if v is None or isinstance(v, bool):
+        return None
+    try:
+        return money(Decimal(str(v)))
+    except ArithmeticError:
+        return None
+
+
 class SerpApiShoppingAdapter(MerchantAdapter):
-    adapter_id = "google-shopping"
+    """Real listings from Google Shopping, Amazon, eBay and Walmart through SerpAPI."""
+
+    adapter_id = "serpapi"
     supported_operations = frozenset({"search_products", "get_product_details", "get_seller_information",
                                       "get_purchase_terms", "quote_tax"})
 
-    def __init__(self, api_key: str, session_factory: sessionmaker, cache_ttl: float = 3600, max_results: int = 12,
-                 timeout: float = 20.0, transport: httpx.BaseTransport | None = None):
+    def __init__(self, api_key: str, session_factory: sessionmaker, cache_ttl: float = 3600, max_results: int = 20,
+                 timeout: float = 25.0, transport: httpx.BaseTransport | None = None):
         self._key = api_key
         self._sessions = session_factory
         self._ttl = cache_ttl
         self._max = max_results
         self._http = httpx.Client(timeout=timeout, transport=transport)
-        self._cache: dict[tuple[str, str], tuple[float, list[dict]]] = {}
+        self._cache: dict[tuple[str, str, str], tuple[float, list[dict]]] = {}
+        self._sellers: dict[str, dict] = {}
         self._lock = threading.Lock()
         self.searches_made = 0
+        self.last_errors: list[str] = []
 
     # ---------------------------------------------------------------- search
     def search_products(self, query: str | None, category: str | None, budget: str | None = None,
                         currency: str | None = None, specs: dict[str, str] | None = None,
-                        color: str | None = None) -> list[dict]:
+                        color: str | None = None, market: str | None = None, depth: str = "quick",
+                        alt_query: str | None = None) -> list[dict]:
         q = " ".join(x for x in [(query or "").strip(), (color or "").lower()] if x).strip()
         if not q:
             return []
-        gl = GL_BY_CURRENCY.get((currency or "USD").upper(), "us")
-        key = (q.lower(), gl)
-        with self._lock:
-            hit = self._cache.get(key)
-            if hit and time.monotonic() - hit[0] < self._ttl:
-                return [dict(x) for x in hit[1]]
+        mk = market_for(market, currency)
+        alt = " ".join(x for x in [(alt_query or "").strip(), (color or "").lower()] if x).strip() or None
+        plan = search_plan(mk, depth if depth in DEPTHS else "standard", q, alt)
+        merged: dict[str, dict] = {}
+        errors: list[str] = []
+        for engine, eq in plan:
+            try:
+                for l in self._engine_search(engine, eq, mk):
+                    merged.setdefault(l["id"], l)
+            except ProductSourceError as e:
+                errors.append(str(e))
+        self.last_errors = errors
+        if not merged and errors:
+            raise ProductSourceError(errors[0])
+        return list(merged.values())
+
+    def _engine_search(self, engine: str, q: str, market: str, use_cache: bool = True) -> list[dict]:
+        m = MARKETS[market]
+        key = (engine, q.lower(), market)
+        if use_cache:
+            with self._lock:
+                hit = self._cache.get(key)
+                if hit and time.monotonic() - hit[0] < self._ttl:
+                    return [dict(x) for x in hit[1]]
+        params: dict = {"engine": engine, "api_key": self._key}
+        if engine == "google_shopping":
+            params.update({"q": q, "gl": m["gl"], "hl": "en"})
+        elif engine == "amazon":
+            params.update({"k": q, "amazon_domain": m["amazon"]})
+        elif engine == "ebay":
+            params.update({"_nkw": q, "ebay_domain": m["ebay"]})
+        elif engine == "walmart":
+            params.update({"query": q})
+        label = ENGINE_LABELS[engine]
         try:
-            r = self._http.get(SERPAPI_URL, params={"engine": "google_shopping", "q": q, "gl": gl, "hl": "en",
-                                                    "api_key": self._key})
+            r = self._http.get(SERPAPI_URL, params=params)
         except httpx.HTTPError as e:
-            raise ProductSourceError(f"Google Shopping search failed ({e.__class__.__name__}). Try again.") from e
+            raise ProductSourceError(f"{label} search failed ({e.__class__.__name__}). Try again.") from e
         self.searches_made += 1
         try:
             data = r.json()
         except ValueError as e:
-            raise ProductSourceError(f"Google Shopping returned an unreadable response (HTTP {r.status_code}).") from e
+            raise ProductSourceError(f"{label} returned an unreadable response (HTTP {r.status_code}).") from e
         err = data.get("error") if isinstance(data, dict) else None
         if err:
             if "hasn't returned any results" in str(err).lower() or "no results" in str(err).lower():
                 return []
-            raise ProductSourceError(f"Google Shopping (SerpAPI): {str(err).replace(self._key, '[key]')[:200]}")
+            raise ProductSourceError(f"{label} (SerpAPI): {str(err).replace(self._key, '[key]')[:200]}")
         if r.status_code != 200:
-            raise ProductSourceError(f"Google Shopping search failed (HTTP {r.status_code}).")
+            raise ProductSourceError(f"{label} search failed (HTTP {r.status_code}).")
         retrieved = utcnow().isoformat()
-        listings, seen_ids = [], set()
-        for item in data.get("shopping_results") or []:
-            listing = self._to_listing(item, gl, q, retrieved)
-            if listing and listing["id"] not in seen_ids:  # Google can list the same offer twice
-                seen_ids.add(listing["id"])
-                listings.append(listing)
+        parse = {"google_shopping": self._google, "amazon": self._amazon, "ebay": self._ebay,
+                 "walmart": self._walmart}[engine]
+        items = data.get("shopping_results" if engine == "google_shopping" else "organic_results") or []
+        listings, seen = [], set()
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            l = parse(item, market, q, retrieved)
+            if l and l["id"] not in seen:  # sources can list the same offer twice
+                l.update({"engine": engine, "market": market, "query": q, "gl": m["gl"],
+                          "source_label": f"{label} via SerpAPI"})
+                seen.add(l["id"])
+                listings.append(l)
             if len(listings) >= self._max:
                 break
         self._persist(listings)
@@ -167,34 +264,97 @@ class SerpApiShoppingAdapter(MerchantAdapter):
             self._cache[key] = (time.monotonic(), [dict(x) for x in listings])
         return listings
 
-    def _to_listing(self, it: dict, gl: str, query: str, retrieved: str) -> dict | None:
-        price = it.get("extracted_price")
-        title = (it.get("title") or "").strip()
+    # ---------------------------------------------------------------- parsers
+    @staticmethod
+    def _oid(engine: str, ident: str, market: str) -> str:
+        return "ext-" + hashlib.sha256(f"{engine}|{ident}|{market}".encode()).hexdigest()[:20]
+
+    @staticmethod
+    def _base(oid: str, title: str, price: Decimal, cur: str | None, seller_id: str, store: str, query: str,
+              url: str | None, thumbnail: str | None, retrieved: str, delivery: str, notes: list[str],
+              snippet: str = "") -> dict:
+        ship = parse_shipping(delivery)
+        return {
+            "id": oid, "name": title[:200], "brand": "", "model": "", "category": query, "variants": [],
+            "price": money_str(price), "currency": cur, "seller_id": seller_id, "listing_seller_name": store,
+            "specs": specs_from_text(f"{title} {snippet}"), "description": " ".join(x for x in [title, snippet] if x),
+            "url": safe_url(url), "simulated": False, "external": True, "thumbnail": safe_url(thumbnail),
+            "rating": None, "reviews": None, "multiple_sources": False, "delivery_text": delivery,
+            "extensions": notes, "retrieved_at": retrieved,
+            "terms": {"shipping_cost": ship} if ship is not None else {},
+            "policy_text": ". ".join(x for x in [*notes, delivery, snippet] if x), "condition": None,
+            "sponsored": False,
+        }
+
+    def _google(self, it: dict, market: str, query: str, retrieved: str) -> dict | None:
+        price, title = _num(it.get("extracted_price")), (it.get("title") or "").strip()
         store = (it.get("source") or "").strip()
         if price is None or not title:
             return None  # a listing without a stated price can't be evaluated
-        try:
-            price_dec = money(Decimal(str(price)))
-        except ArithmeticError:
+        gl = MARKETS[market]["gl"]
+        oid = "ext-" + hashlib.sha256(f"{it.get('product_id') or title + '|' + store}|{store}|{gl}".encode()).hexdigest()[:20]
+        notes = [str(x) for x in (it.get("extensions") or []) if isinstance(x, (str, int, float))]
+        l = self._base(oid, title, price, currency_from_price(it.get("price"), gl), f"store:{store or 'unknown store'}",
+                       store or "Unknown store", query, it.get("product_link") or it.get("link"), it.get("thumbnail"),
+                       retrieved, (it.get("delivery") or "").strip(), notes, (it.get("snippet") or "").strip())
+        l.update({"rating": it.get("rating"), "reviews": it.get("reviews"),
+                  "multiple_sources": bool(it.get("multiple_sources"))})
+        return l
+
+    def _amazon(self, it: dict, market: str, query: str, retrieved: str) -> dict | None:
+        price, title, asin = _num(it.get("extracted_price")), (it.get("title") or "").strip(), it.get("asin")
+        if price is None or not title or not asin:
             return None
-        cur = currency_from_price(it.get("price"), gl)
-        ident = str(it.get("product_id") or f"{title}|{store}")
-        oid = "ext-" + hashlib.sha256(f"{ident}|{store}|{gl}".encode()).hexdigest()[:20]
-        snippet = (it.get("snippet") or "").strip()
-        extensions = [str(x) for x in (it.get("extensions") or []) if isinstance(x, (str, int, float))]
-        delivery = (it.get("delivery") or "").strip()
-        return {
-            "id": oid, "name": title[:200], "brand": "", "model": "", "category": query, "variants": [],
-            "price": money_str(price_dec), "currency": cur, "seller_id": f"store:{store or 'unknown store'}",
-            "listing_seller_name": store or "Unknown store", "specs": specs_from_text(f"{title} {snippet}"),
-            "description": " ".join(x for x in [title, snippet] if x),
-            "url": safe_url(it.get("product_link") or it.get("link")), "simulated": False, "external": True,
-            "thumbnail": safe_url(it.get("thumbnail")), "rating": it.get("rating"), "reviews": it.get("reviews"),
-            "multiple_sources": bool(it.get("multiple_sources")), "delivery_text": delivery,
-            "extensions": extensions, "retrieved_at": retrieved, "source_label": SOURCE_LABEL, "gl": gl,
-            "terms": {"shipping_cost": parse_shipping(delivery)} if parse_shipping(delivery) is not None else {},
-            "policy_text": ". ".join(x for x in [*extensions, delivery, snippet] if x),
-        }
+        delivery = it.get("delivery")
+        delivery = " · ".join(str(x) for x in delivery) if isinstance(delivery, list) else str(delivery or "")
+        store = "Amazon (marketplace - seller not shown)"
+        l = self._base(self._oid("amazon", str(asin), market), title, price,
+                       currency_from_price(it.get("price"), MARKETS[market]["gl"]), f"store:{store}", store, query,
+                       it.get("link_clean") or it.get("link"), it.get("thumbnail"), retrieved, delivery,
+                       [str(b) for b in (it.get("badges") or []) if isinstance(b, str)])
+        l.update({"rating": it.get("rating"), "reviews": it.get("reviews"), "sponsored": bool(it.get("sponsored"))})
+        return l
+
+    def _ebay(self, it: dict, market: str, query: str, retrieved: str) -> dict | None:
+        title = (it.get("title") or "").strip()
+        p = it.get("price") or {}
+        price_obj = p.get("from") if isinstance(p, dict) and "from" in p else p
+        price = _num(price_obj.get("extracted")) if isinstance(price_obj, dict) else None
+        if price is None or not title:
+            return None
+        seller = it.get("seller") or {}
+        username = (seller.get("username") or "").strip() or "unknown seller"
+        sid = f"ebay:{username}"
+        with self._lock:
+            self._sellers[sid] = {"username": username, "reviews": seller.get("reviews"),
+                                  "positive_pct": seller.get("positive_feedback_in_percentage")}
+        notes = [x for x in [it.get("condition"), it.get("buying_format_text"), it.get("location"),
+                             "price range (several variants)" if isinstance(p, dict) and "from" in p else None] if x]
+        raw = price_obj.get("raw") if isinstance(price_obj, dict) else None
+        l = self._base(self._oid("ebay", str(it.get("product_id") or it.get("link") or title), market), title, price,
+                       currency_from_price(raw, MARKETS[market]["gl"]), sid, f"eBay - {username}", query,
+                       it.get("link"), it.get("thumbnail"), retrieved, str(it.get("shipping") or ""),
+                       [str(x) for x in notes], (it.get("subtitle") or "").strip())
+        l.update({"condition": it.get("condition"), "sponsored": bool(it.get("sponsored")),
+                  "seller_feedback": self._sellers[sid]})
+        return l
+
+    def _walmart(self, it: dict, market: str, query: str, retrieved: str) -> dict | None:
+        offer = it.get("primary_offer") or {}
+        price, title = _num(offer.get("offer_price")), (it.get("title") or "").strip()
+        if price is None or not title or it.get("out_of_stock"):
+            return None  # out-of-stock items can't be bought
+        store = (it.get("seller_name") or "Walmart.com").strip()
+        delivery = "Free shipping" if it.get("free_shipping") else ""
+        if it.get("two_day_shipping"):
+            delivery = (delivery + " · 2-day shipping").strip(" ·")
+        l = self._base(self._oid("walmart", str(it.get("product_id") or it.get("us_item_id") or title), market),
+                       title, price, "USD", f"store:{store}", store, query, it.get("product_page_url"),
+                       it.get("thumbnail"), retrieved, delivery, [])
+        if it.get("free_shipping"):
+            l["terms"] = {"shipping_cost": "0.00"}
+        l.update({"rating": it.get("rating"), "reviews": it.get("reviews"), "sponsored": bool(it.get("sponsored"))})
+        return l
 
     def _persist(self, listings: list[dict]) -> None:
         with self._sessions() as db:
@@ -206,16 +366,15 @@ class SerpApiShoppingAdapter(MerchantAdapter):
                 db.rollback()
 
     def refresh_listing(self, product_id: str) -> dict | None:
-        """Re-runs the original search without the cache (one paid search) and returns
-        the same listing if it still appears."""
+        """Re-runs the search that found this listing, bypassing the cache (one paid
+        search), and returns the same listing if it still appears."""
         stored = self._stored(product_id)
         if not stored:
             return None
-        q, gl = stored.get("category") or "", stored.get("gl") or "us"
-        with self._lock:
-            self._cache.pop((q.lower(), gl), None)
-        currency = {v: k for k, v in GL_BY_CURRENCY.items()}.get(gl, "USD")
-        for listing in self.search_products(q, None, currency=currency):
+        engine = stored.get("engine") or "google_shopping"
+        market = stored.get("market") or {v["gl"]: k for k, v in MARKETS.items()}.get(stored.get("gl") or "us", "us")
+        q = stored.get("query") or stored.get("category") or ""
+        for listing in self._engine_search(engine, q, market, use_cache=False):
             if listing["id"] == product_id:
                 return listing
         return None
@@ -237,17 +396,27 @@ class SerpApiShoppingAdapter(MerchantAdapter):
                 "policy_text": l.get("policy_text") or "", "source": l.get("url") or SOURCE_LABEL}
 
     def get_seller_information(self, seller_id: str) -> dict | None:
+        if seller_id.startswith("ebay:"):
+            fb = self._sellers.get(seller_id) or {"username": seller_id[5:], "reviews": None, "positive_pct": None}
+            n, pct = fb.get("reviews"), fb.get("positive_pct")
+            return {
+                "seller_id": seller_id, "name": f"eBay - {fb['username']}", "marketplace": "eBay",
+                "identity_verified": None, "business_registration": None, "years_active": None,
+                "rating": f"{pct}% positive" if pct is not None else None, "rating_count": n,
+                "dispute_rate_pct": None, "return_policy_published": None,
+                "feedback_score": n, "positive_pct": pct,
+                "source": "eBay seller feedback shown on the listing (via SerpAPI)",
+            }
         if not seller_id.startswith("store:"):
             return None
         store = seller_id[len("store:"):]
         marketplace = bool(MARKETPLACE_HINTS.search(store))
         return {
-            "seller_id": seller_id, "name": store, "marketplace": "Listed on Google Shopping",
+            "seller_id": seller_id, "name": store, "marketplace": "Listed on a shopping search",
             "identity_verified": None, "business_registration": None, "years_active": None, "rating": None,
             "rating_count": None, "dispute_rate_pct": None, "return_policy_published": None,
             "established_retailer": is_established(store) and not marketplace, "marketplace_seller": marketplace,
-            "source": "Store name on the Google Shopping listing, matched against CHECKMATE's list of "
-                      "established retailers",
+            "source": "Store name on the listing, matched against CHECKMATE's list of established retailers",
         }
 
     def quote_tax(self, product_id: str, variant: str | None, quantity: int) -> dict:

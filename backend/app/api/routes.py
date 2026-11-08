@@ -18,6 +18,7 @@ from app.core.config import get_settings
 from app.database.models import PurchasePassportRow, User, Workflow
 from app.database.session import get_db
 from app.integrations.merchants.catalog import SCENARIOS
+from app.integrations.merchants.serpapi_shopping import search_options
 from app.orchestrator import service as svc
 from app.orchestrator.events import list_events, verify_chain
 from app.api.locks import serialized_user
@@ -30,6 +31,8 @@ router = APIRouter(prefix="/api/v1")
 class IntentIn(BaseModel):
     text: str = Field(min_length=3, max_length=2000)
     autonomy_mode: str = "ASSISTED"
+    market: str | None = Field(default=None, max_length=4)
+    search_depth: str = "standard"
 
 
 class PurchaseReportIn(BaseModel):
@@ -85,14 +88,16 @@ def system_info():
     return {"paypal_environment": s.paypal_mode, "llm_enabled": llm.enabled, "llm_provider": llm.provider,
             "llm_model": llm.model if llm.enabled else None, "product_sources": c.catalog.sources(),
             "real_stores_connected": c.external is not None, "demo_store_enabled": c.merchant is not None,
-            "demo_controls_enabled": s.demo_controls_enabled, "scenarios": SCENARIOS}
+            "demo_controls_enabled": s.demo_controls_enabled, "scenarios": SCENARIOS,
+            "search_options": search_options()}
 
 
 # --------------------------------------------------------------- workflows ---
 @router.post("/shopping/intents", status_code=202)
 def submit_intent(body: IntentIn, bg: BackgroundTasks, user: User = Depends(serialized_user),
                   db: Session = Depends(get_db)):
-    wf = svc.create_workflow(db, user.id, body.text.strip(), body.autonomy_mode)
+    wf = svc.create_workflow(db, user.id, body.text.strip(), body.autonomy_mode, market=body.market,
+                             search_depth=body.search_depth)
     bg.add_task(svc.run_pipeline, wf.id)
     return {"workflow_id": wf.id, "state": wf.state}
 

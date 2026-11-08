@@ -65,6 +65,8 @@ class ShoppingIntent(BaseModel):
     clarifications_needed: list[str] = Field(default_factory=list)
     assumptions: list[str] = Field(default_factory=list)
     parser: str = "rules"
+    market: str | None = None           # which country's stores to search (us, uk, ca, au, de, fr, in)
+    search_depth: str = "standard"      # quick | standard | wide
 
     @property
     def needs_clarification(self) -> bool:
@@ -92,6 +94,9 @@ class ProductCandidate(BaseModel):
     gaps: list[str] = Field(default_factory=list)
     unverified_specs: list[str] = Field(default_factory=list)
     relevance_issues: list[str] = Field(default_factory=list)
+    engine: str | None = None             # google_shopping | amazon | ebay | walmart
+    condition: str | None = None          # as stated on the listing (e.g. "Brand New", "Pre-Owned")
+    sponsored: bool = False
     external: bool = False            # real store listing (Google Shopping)
     demo: bool = False                # fictional demo store listing
     thumbnail: str | None = None

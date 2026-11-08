@@ -377,6 +377,7 @@ const EVIDENCE_STYLE: Record<string, string> = {
 };
 
 type SortKey = "best" | "price_asc" | "price_desc" | "rating";
+const SOURCE_NAMES: Record<string, string> = { google_shopping: "Google Shopping", amazon: "Amazon", ebay: "eBay", walmart: "Walmart" };
 
 export function OfferCards({ evaluations, selectedId, onSelect, busy = false, canSwitch = false }: {
   evaluations: Evaluation[]; selectedId?: string; onSelect?: (id: string, brokenRules: string[]) => void;
@@ -446,6 +447,9 @@ export function OfferCards({ evaluations, selectedId, onSelect, busy = false, ca
                     <h3 className="font-bold">{c.product_name}</h3>
                     {selected && <span className="chip bg-brand-600 text-white"><Check size={12} strokeWidth={3} /> In your contract</span>}
                     {c.demo && <span className="chip bg-amber-50 text-[10px] font-semibold uppercase text-amber-700 dark:bg-amber-950" title="Fictional demo store, enabled for testing">Demo store (fictional)</span>}
+                    {c.engine && <span className="chip bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-600 dark:bg-slate-800 dark:text-slate-300" title="Where this listing was found">{SOURCE_NAMES[c.engine] ?? c.engine}</span>}
+                    {c.sponsored && <span className="chip bg-slate-100 px-2 py-0.5 text-[10px] uppercase text-slate-500 dark:bg-slate-800" title="Paid placement on the source site">Sponsored</span>}
+                    {c.condition && <span className={`chip px-2 py-0.5 text-[10px] font-semibold ${/new/i.test(c.condition) ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950" : "bg-amber-50 text-amber-800 dark:bg-amber-950"}`}>{c.condition}</span>}
                   </div>
                   <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
                     {c.variant && <><span>{c.variant}</span><span>·</span></>}
@@ -477,7 +481,7 @@ export function OfferCards({ evaluations, selectedId, onSelect, busy = false, ca
                 <button onClick={() => setOpen(isOpen ? null : c.id)} className="flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-500 dark:text-brand-400" aria-expanded={isOpen}>
                   <ChevronDown size={14} className={`transition ${isOpen ? "rotate-180" : ""}`} />{isOpen ? "Hide evidence" : "Show evidence"}
                 </button>
-                {c.external && c.product_url && <a href={c.product_url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-xs font-semibold text-slate-600 hover:text-brand-600 dark:text-slate-300">View on Google Shopping <ArrowRight size={12} /></a>}
+                {c.external && c.product_url && <a href={c.product_url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-xs font-semibold text-slate-600 hover:text-brand-600 dark:text-slate-300">View on {SOURCE_NAMES[c.engine ?? "google_shopping"] ?? "store"} <ArrowRight size={12} /></a>}
                 {c.external && c.retrieved_at && <span className="text-[11px] text-slate-400">price as of {new Date(c.retrieved_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</span>}
                 {canSwitch && onSelect && !selected && (c.external || e.status === "PASS") && (
                   <button className={`ml-auto py-1.5 text-xs ${e.status === "FAIL" ? "btn-secondary" : "btn-primary"}`} disabled={busy}

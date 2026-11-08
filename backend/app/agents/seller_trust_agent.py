@@ -25,6 +25,8 @@ class SellerTrustAgent(BaseAgent):
         src = info.get("source", "seller registry")
         if "established_retailer" in info:
             return self._listing_store(candidate, info, src)
+        if "feedback_score" in info:
+            return self._marketplace_feedback(candidate, info, src)
 
         def sig(name: str, value) -> SellerSignal:
             return SellerSignal(name=name, value=None if value is None else str(value),
@@ -109,3 +111,32 @@ class SellerTrustAgent(BaseAgent):
             evidence=[EvidenceRef(source=src, reference=candidate.product_url or candidate.id,
                                   description="Store named on the listing")],
             missing=missing, confidence=0.4)
+
+    @staticmethod
+    def _marketplace_feedback(candidate: ProductCandidate, info: dict, src: str) -> AgentOutput:
+        """eBay seller: real feedback count and positive percentage from the listing."""
+        n, pct = info.get("feedback_score"), info.get("positive_pct")
+        signals = [
+            SellerSignal(name="seller_feedback_count", value=None if n is None else str(n),
+                         status="MISSING" if n is None else "PRESENT", source=src),
+            SellerSignal(name="positive_feedback_pct", value=None if pct is None else str(pct),
+                         status="MISSING" if pct is None else "PRESENT", source=src),
+            SellerSignal(name="identity_verified", value=None, status="MISSING", source=src),
+        ]
+        missing = [x.name for x in signals if x.status == "MISSING"]
+        if n is not None and pct is not None and n >= 1000 and float(pct) >= 98:
+            level = EvidenceLevel.STRONG
+        elif n is not None and pct is not None and n >= 50 and float(pct) >= 95:
+            level = EvidenceLevel.LIMITED
+        else:
+            level = EvidenceLevel.INSUFFICIENT
+        summary = (f"eBay seller {info.get('name', '').replace('eBay - ', '')}: "
+                   + (f"{n:,} feedback ratings, {pct}% positive." if n is not None and pct is not None
+                      else "no feedback data on the listing."))
+        return AgentOutput(
+            value=SellerAssessment(seller_id=candidate.seller_id, seller_name=info.get("name"),
+                                   marketplace="eBay", evidence_level=level, signals=signals,
+                                   listing_consistent=Tri.PASS, missing_evidence=missing, summary=summary),
+            evidence=[EvidenceRef(source=src, reference=candidate.product_url or candidate.id,
+                                  description="eBay seller feedback")],
+            missing=missing, confidence=0.7 if level != EvidenceLevel.INSUFFICIENT else 0.3)

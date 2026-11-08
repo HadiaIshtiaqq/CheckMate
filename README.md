@@ -34,7 +34,7 @@ Open http://localhost:3000, **create an account**, and describe what you want to
 
 | Setting | What it does | Where to get it |
 |---|---|---|
-| `SERPAPI_KEY` | **Required to find products.** Real listings from Google Shopping (thousands of stores) | serpapi.com, free plan: 250 searches a month |
+| `SERPAPI_KEY` | **Required to find products.** Real listings from Google Shopping, Amazon, eBay and Walmart | serpapi.com, free plan: 250 searches a month |
 | `GEMINI_API_KEYS` | Optional LLM extraction (comma-separate several free keys to rotate them) | aistudio.google.com/apikey |
 | `PAYPAL_CLIENT_ID` / `PAYPAL_CLIENT_SECRET` | Real PayPal **Sandbox** for the demo-store checkout | developer.paypal.com |
 
@@ -45,7 +45,12 @@ Secrets you don't set (payment authorisation, simulated webhooks) are generated 
 ## How a purchase works
 
 **Real stores (default).**
-1. **Search:** discovery searches Google Shopping via SerpAPI.
+1. **Search:** discovery searches real stores via SerpAPI. You pick the country (US, UK, Canada, Australia, Germany, France, India) and the depth:
+   - **Quick:** Google Shopping, 1 search.
+   - **Standard:** Google Shopping + Amazon + eBay, 3 searches.
+   - **Wide:** adds Walmart (US) and a second phrasing, up to 5 searches.
+
+   Results from all sources are merged and de-duplicated. eBay listings carry real seller feedback, which counts as seller evidence. Amazon listings don't name the seller, so they count as limited evidence. Used or refurbished items are flagged unless you ask for them. Sponsored placements are labelled.
 2. **Evaluate:** each listing is checked against your rules using only what the listing states (title, store, price, delivery, notes such as "Free 30-day returns").
 3. **Plan:** the best offer with no failed rule becomes a **purchase plan**. Everything the listing couldn't prove (warranty, return policy, subscriptions, final total with tax) becomes a checklist.
 4. **Approve:** you approve the plan. The approval is bound to the plan's version and SHA-256 hash, and signed with the server key.
@@ -85,7 +90,7 @@ The browser suite signs up, runs a purchase through the simulated PayPal approva
 
 - **Real stores' checkouts can't be inspected.** No store exposes its checkout to third parties. For real-store purchases *you* confirm the checklist, and the passport says so. Only the demo store demonstrates automatic checkout blocking.
 - **Real-store payments aren't processed by CHECKMATE**, so the paid amount is self-reported (the receipt upload is your evidence). PayPal covers the demo store only.
-- **Coverage is Google Shopping's index:** thousands of retailers, but not every website. One results page (about 40 items) per search; the top 20 are evaluated.
+- **Coverage is what these sources index:** Google Shopping, Amazon, eBay and Walmart (US). That's a large share of online retail, but not every website. Each search returns one results page, and up to 40 merged offers are evaluated.
 - **Store trust from a listing is a name match** against established retailers. Marketplace sellers ("Walmart - SellerName", "eBay - …") count as limited evidence. Star ratings shown are product ratings.
 - **Signatures protect against database edits, not against someone holding both the database and the signing key.** External timestamping would be the next step.
 - **The real PayPal Sandbox and PostgreSQL/Docker paths are covered by tests and config checks**, but haven't been exercised end to end on this machine.

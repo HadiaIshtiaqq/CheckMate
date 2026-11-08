@@ -167,11 +167,18 @@ def _ttl() -> timedelta:
 
 
 # =============================================================== pipeline ====
-def create_workflow(db: Session, user_id: str, text: str, autonomy_mode: str) -> Workflow:
+def create_workflow(db: Session, user_id: str, text: str, autonomy_mode: str, market: str | None = None,
+                    search_depth: str = "standard") -> Workflow:
+    from app.integrations.merchants.serpapi_shopping import DEPTHS, MARKETS
+
     if autonomy_mode not in AUTONOMY_MODES:
         raise ServiceError(f"autonomy_mode must be one of {AUTONOMY_MODES}")
+    if market is not None and market not in MARKETS:
+        raise ServiceError(f"market must be one of {', '.join(MARKETS)}")
+    if search_depth not in DEPTHS:
+        raise ServiceError(f"search_depth must be one of {', '.join(DEPTHS)}")
     wf = Workflow(id=new_id("wf"), user_id=user_id, state=WS.CREATED.value, autonomy_mode=autonomy_mode,
-                  raw_request=text)
+                  raw_request=text, market=market, search_depth=search_depth)
     db.add(wf)
     db.commit()
     emit(db, wf, "intent.created", "Shopping request received", payload={"autonomy_mode": autonomy_mode})
@@ -211,6 +218,7 @@ def _pipeline(db: Session, wf: Workflow, c: Container) -> None:
         record_run(db, wf, run, "Requirements extracted" if run.ok else None)
         if not run.ok:
             raise RuntimeError("Intent agent failed")
+        apply_market(intent, wf)
         wf.intent = intent.model_dump(mode="json")
         db.commit()
         if intent.needs_clarification:
@@ -227,6 +235,26 @@ def _pipeline(db: Session, wf: Workflow, c: Container) -> None:
     if evaluations is None:
         return
     _draft_contract(db, wf, c, intent, evaluations)
+
+
+def apply_market(intent: ShoppingIntent, wf: Workflow) -> None:
+    """Which country's stores to search, and the matching currency when the request didn't say."""
+    from app.integrations.merchants.serpapi_shopping import MARKET_BY_CURRENCY, MARKETS
+
+    intent.search_depth = wf.search_depth or "standard"
+    if wf.market in MARKETS:
+        intent.market = wf.market
+        cur = MARKETS[wf.market]["currency"]
+        raw = wf.raw_request.lower()
+        if intent.max_budget is not None and intent.currency is None:
+            intent.currency = cur
+            intent.clarifications_needed = [q for q in intent.clarifications_needed if "currency" not in q.lower()]
+            intent.assumptions.append(f"Budget read as {cur} because you chose {MARKETS[wf.market]['name']} stores.")
+        elif intent.currency == "USD" and cur in ("CAD", "AUD") and "usd" not in raw and "us$" not in raw:
+            intent.currency = cur
+            intent.assumptions.append(f"'$' read as {cur} because you chose {MARKETS[wf.market]['name']} stores.")
+    else:
+        intent.market = MARKET_BY_CURRENCY.get(intent.currency or "USD", "us")
 
 
 def discover_and_evaluate(db: Session, wf: Workflow, c: Container, intent: ShoppingIntent, exclude: list[str],

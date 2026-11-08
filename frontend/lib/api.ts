@@ -76,7 +76,7 @@ export interface Charge {
 
 export interface Evaluation {
   candidate: {
-    external?: boolean; demo?: boolean; thumbnail?: string | null; rating?: number | null; reviews?: number | null;
+    external?: boolean; demo?: boolean; engine?: string | null; condition?: string | null; sponsored?: boolean; thumbnail?: string | null; rating?: number | null; reviews?: number | null;
     multiple_sources?: boolean; delivery_text?: string | null; retrieved_at?: string | null; unverified_specs?: string[];
     id: string; product_name: string; brand: string; model: string; variant: string | null; price: string;
     currency: string; seller_id: string; listing_seller_name: string; product_url: string; gaps: string[];
@@ -176,4 +176,8 @@ export interface SystemInfo {
   paypal_environment: string; llm_enabled: boolean; llm_provider: string; llm_model: string | null;
   demo_controls_enabled: boolean; scenarios: Record<string, string>;
   product_sources: string[]; real_stores_connected: boolean; demo_store_enabled: boolean;
+  search_options: {
+    markets: { code: string; name: string; currency: string; sources: string[] }[];
+    depths: Record<"quick" | "standard" | "wide", Record<string, number>>;
+  };
 }

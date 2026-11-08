@@ -40,7 +40,8 @@ HEADPHONES = ("Find wireless headphones under $110. They must have at least a on
 
 def handler(request: httpx.Request) -> httpx.Response:
     q = request.url.params.get("q", "").lower()
-    assert request.url.params.get("engine") == "google_shopping"
+    if request.url.params.get("engine") != "google_shopping":  # Amazon/eBay/Walmart: nothing in these fixtures
+        return httpx.Response(200, json={"organic_results": []})
     if "explode" in q:
         return httpx.Response(401, json={"error": "Invalid API key. Your API key should be here: test-serp-key"})
     if "zzzz" in q:

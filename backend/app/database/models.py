@@ -27,6 +27,8 @@ class Workflow(Base):
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
     state: Mapped[str] = mapped_column(String(40), index=True)
     autonomy_mode: Mapped[str] = mapped_column(String(20), default="ASSISTED")
+    market: Mapped[str | None] = mapped_column(String(4), nullable=True)
+    search_depth: Mapped[str | None] = mapped_column(String(10), nullable=True)
     raw_request: Mapped[str] = mapped_column(Text)
     intent: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     evaluations: Mapped[list | None] = mapped_column(JSON, nullable=True)

@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { api, ApiError, post, type SystemInfo, type WorkflowSummary } from "@/lib/api";
 import { StateBadge, money, plural, timeAgo } from "@/components/ui";
 import {
-  Alert, ArrowRight, Award, Ban, Clock, CreditCard, Eye, FileText, Loader, Search, ShieldCheck, Sparkles, Zap,
+  Alert, ArrowRight, Award, Store, Ban, Clock, CreditCard, Eye, FileText, Loader, Search, ShieldCheck, Sparkles, Zap,
 } from "@/components/icons";
 
 const EXAMPLES = [
@@ -33,6 +33,8 @@ export default function Dashboard() {
   const router = useRouter();
   const [text, setText] = useState(EXAMPLES[0].text);
   const [mode, setMode] = useState("ASSISTED");
+  const [market, setMarket] = useState("us");
+  const [depth, setDepth] = useState<"quick" | "standard" | "wide">("standard");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<WorkflowSummary[] | null>(null);
@@ -57,7 +59,7 @@ export default function Dashboard() {
     setBusy(true);
     setError(null);
     try {
-      const r = await post<{ workflow_id: string }>("/api/v1/shopping/intents", { text, autonomy_mode: mode });
+      const r = await post<{ workflow_id: string }>("/api/v1/shopping/intents", { text, autonomy_mode: mode, market, search_depth: depth });
       router.push(`/workflows/${r.workflow_id}`);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not reach the CHECKMATE API. Is the backend running on port 8000?");
@@ -101,6 +103,33 @@ export default function Dashboard() {
                         value={text} onChange={(e) => setText(e.target.value)} maxLength={2000}
                         placeholder="e.g. Find wireless headphones under $110 with free returns and no subscription"
                         onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit(); }} />
+              {sys?.real_stores_connected && (
+                <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 px-1 py-3 text-xs dark:border-slate-800">
+                  <label className="flex items-center gap-2 font-semibold text-slate-600 dark:text-slate-300">
+                    <Store size={14} /> Stores in
+                    <select className="input w-auto py-1.5 text-xs" value={market} onChange={(e) => setMarket(e.target.value)} aria-label="Country">
+                      {sys.search_options.markets.map((m) => <option key={m.code} value={m.code}>{m.name} ({m.currency})</option>)}
+                    </select>
+                  </label>
+                  <div className="flex rounded-xl bg-slate-100 p-1 font-semibold dark:bg-slate-800" role="radiogroup" aria-label="Search depth">
+                    {(["quick", "standard", "wide"] as const).map((d) => {
+                      const n = sys.search_options.depths[d]?.[market] ?? 1;
+                      const label = { quick: "Quick", standard: "Standard", wide: "Wide" }[d];
+                      return (
+                        <button key={d} role="radio" aria-checked={depth === d} onClick={() => setDepth(d)}
+                                title={`${label}: ${n} SerpAPI search${n === 1 ? "" : "es"}`}
+                                className={`rounded-lg px-3 py-1.5 transition ${depth === d ? "bg-white text-brand-700 shadow-sm dark:bg-slate-700 dark:text-white" : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"}`}>
+                          {label} <span className="font-normal opacity-70">· {n}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <span className="text-slate-500">
+                    Searches {{ quick: ["Google Shopping"], standard: (sys.search_options.markets.find((m) => m.code === market)?.sources ?? []).filter((x) => x !== "Walmart"), wide: sys.search_options.markets.find((m) => m.code === market)?.sources ?? [] }[depth].filter((v, i, a) => a.indexOf(v) === i).join(", ")}
+                    {depth === "wide" && " + a second phrasing"}
+                  </span>
+                </div>
+              )}
               <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-1 pt-3 dark:border-slate-800">
                 <div className="flex rounded-xl bg-slate-100 p-1 text-xs font-semibold dark:bg-slate-800" role="radiogroup" aria-label="Autonomy mode">
                   {[{ v: "ASSISTED", l: "Buy it", t: "Find, verify and buy with your approval", i: <CreditCard size={14} /> }, { v: "MANDATE", l: "My mandate", t: "Approve automatically if it fits a purchasing mandate you set (you still pay yourself)", i: <ShieldCheck size={14} /> }, { v: "MONITORING_ONLY", l: "Just watch", t: "Track the offer without buying (you can switch to buying later)", i: <Eye size={14} /> }].map((m) => (

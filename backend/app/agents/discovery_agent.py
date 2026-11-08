@@ -7,6 +7,7 @@ import re
 from decimal import Decimal
 
 from app.agents.base import AgentOutput, BaseAgent
+from app.integrations.merchants.serpapi_shopping import USED_CONDITION
 from app.schemas.common import EvidenceRef
 from app.schemas.domain import ProductCandidate, ShoppingIntent
 
@@ -72,7 +73,22 @@ def relevance_issues(intent: ShoppingIntent, listing: dict) -> list[str]:
         nouns = [_singular(words[-1])] if words else []
     if nouns and not any(n in title for n in nouns):
         issues.append(f"title doesn't mention {' / '.join(nouns[:3])}")
+    cond = listing.get("condition") or ""
+    if cond and USED_CONDITION.search(cond) and not USED_CONDITION.search(intent.raw_text or ""):
+        issues.append(f"condition is '{cond}', not new")
     return issues
+
+
+COLOUR_WORDS = {"black", "white", "silver", "blue", "red", "graphite", "stainless", "grey", "gray", "green", "pink"}
+
+
+def alternate_query(intent: ShoppingIntent) -> str | None:
+    """A second, simpler phrasing for 'wide' searches (drops colours and extra adjectives)."""
+    words = [w for w in re.findall(r"[a-z0-9-]+", (intent.product_description or "").lower())
+             if w not in COLOUR_WORDS and len(w) > 2]
+    if len(words) < 2:
+        return None
+    return " ".join(words[-2:])
 
 
 def search_query(intent: ShoppingIntent) -> str:
@@ -93,7 +109,8 @@ class DiscoveryAgent(BaseAgent):
         listings = self.tools.call(
             "catalog.search", search_query(intent), intent.category,
             budget=str(intent.max_budget) if intent.max_budget is not None else None,
-            currency=intent.currency, specs=intent.specifications, color=intent.preferred_variant)
+            currency=intent.currency, specs=intent.specifications, color=intent.preferred_variant,
+            market=intent.market, depth=intent.search_depth, alt_query=alternate_query(intent))
         candidates: list[ProductCandidate] = []
         for l in listings:
             if l["id"] in exclude or l.get("currency") is None:
@@ -129,7 +146,8 @@ class DiscoveryAgent(BaseAgent):
                 currency=l["currency"], seller_id=l["seller_id"], listing_seller_name=l["listing_seller_name"],
                 product_url=l.get("url") or "", specifications=l["specs"], description=l["description"],
                 match_score=max(score, 0), gaps=gaps, unverified_specs=unverified, external=external,
-                relevance_issues=issues,
+                relevance_issues=issues, engine=l.get("engine"), condition=l.get("condition"),
+                sponsored=bool(l.get("sponsored")),
                 demo=bool(l.get("demo")), thumbnail=l.get("thumbnail"), rating=l.get("rating"),
                 reviews=l.get("reviews"), multiple_sources=bool(l.get("multiple_sources")),
                 delivery_text=l.get("delivery_text"), retrieved_at=l.get("retrieved_at"),
@@ -139,5 +157,5 @@ class DiscoveryAgent(BaseAgent):
             ))
         candidates.sort(key=lambda c: (-c.match_score, c.price))
         missing = [] if candidates else [f"No listings found for '{intent.product_description}'."]
-        return AgentOutput(value=candidates[:20], evidence=[e for c in candidates[:20] for e in c.evidence_references],
+        return AgentOutput(value=candidates[:40], evidence=[e for c in candidates[:40] for e in c.evidence_references],
                            missing=missing, confidence=0.8 if candidates else 0.0)

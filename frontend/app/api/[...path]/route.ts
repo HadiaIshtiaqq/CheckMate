@@ -19,6 +19,11 @@ async function proxy(req: NextRequest, ctx: { params: { path: string[] } }): Pro
   const headers = new Headers(req.headers);
   HOP_BY_HOP.forEach((h) => headers.delete(h));
   headers.delete("accept-encoding"); // let the backend send identity-encoded, streamable bodies
+  // Forward only the last X-Forwarded-For hop (the one Next.js added from the socket).
+  // Earlier entries are client-supplied and could be spoofed to dodge rate limits.
+  const xff = req.headers.get("x-forwarded-for");
+  const lastHop = xff?.split(",").map((s) => s.trim()).filter(Boolean).pop();
+  if (lastHop) headers.set("x-forwarded-for", lastHop); else headers.delete("x-forwarded-for");
   const hasBody = !["GET", "HEAD"].includes(req.method);
   let upstream: Response;
   try {

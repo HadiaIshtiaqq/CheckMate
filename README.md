@@ -8,7 +8,11 @@
 
 **Agents reason. A deterministic policy engine decides. Every purchase ends in a signed, verifiable passport.**
 
+### [▶ Try the live demo](https://checkmate-j0qq.onrender.com)
+
+[![Live demo](https://img.shields.io/badge/live%20demo-checkmate--j0qq.onrender.com-a8506a)](https://checkmate-j0qq.onrender.com)
 [![CI](https://github.com/HadiaIshtiaqq/CheckMate/actions/workflows/ci.yml/badge.svg)](https://github.com/HadiaIshtiaqq/CheckMate/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 `FastAPI` · `Next.js 14` · `Gemini` · `SerpAPI` · `PayPal Sandbox` · `SQLAlchemy` · `Playwright`
 
@@ -17,6 +21,18 @@
 <sub>A real search: Sony WH-1000XM5 headphones found at Lowe's, Best Buy and Macy's, checked against the shopper's rules and turned into a purchase plan.</sub>
 
 </div>
+
+---
+
+## Try it in 2 minutes
+
+1. Open **https://checkmate-j0qq.onrender.com** and **create an account** (any email; no verification needed).
+2. Type what you want, for example *"Logitech MX Master 3S wireless mouse under $120, new"*, and press **Start shopping**.
+3. In about 20 seconds you'll see real offers from real stores, each checked against your rules, and a **purchase plan** for the best one.
+4. **Approve the plan**: the approval is signed and bound to that exact version.
+5. Optional: open the listing, then **Report my purchase** to get a reconciled, signed **Purchase Truth Passport**. You don't have to buy anything; you can report a test amount to see how a mismatch is flagged.
+
+> The demo runs on a free plan: the first visit after a quiet spell can take about a minute to wake up. To protect the shared search quota, the live demo uses Quick searches (Google Shopping) and a small daily limit per account. Demo accounts are reset when the service restarts.
 
 ---
 

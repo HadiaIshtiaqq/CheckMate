@@ -347,8 +347,11 @@ export function NextStep({ wf, lastMessage, events, busy, actions }: { wf: Workf
       }
       return wf.has_discrepancy ? (
         <Banner tone="amber" icon={<Alert size={22} />} title="Paid — but the merchant's receipt doesn't match">
-          <p>PayPal's record is authoritative for what you were charged. The discrepancy is recorded in your Purchase Truth Passport so you can raise it with the merchant.</p>
-          {wf.passport_id && <div className="mt-3"><Link className="btn-primary" href={`/passports/${wf.passport_id}`}><Award size={16} /> Open passport</Link></div>}
+          <p>PayPal's record is authoritative for what you were charged. The discrepancy is recorded in your Purchase Truth Passport. CHECKMATE recommends a refund: use <b>Refund with PayPal</b> in the payment panel.</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {wf.passport_id && <Link className="btn-primary" href={`/passports/${wf.passport_id}`}><Award size={16} /> Open passport</Link>}
+            <a className="btn-secondary" href="#pay">Refund with PayPal</a>
+          </div>
         </Banner>
       ) : (
         <Banner tone="emerald" icon={<Award size={22} />} title="Purchase complete and verified">
@@ -495,7 +498,7 @@ export function OfferCards({ evaluations, selectedId, onSelect, busy = false, ca
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="line-clamp-2 font-bold leading-snug" title={c.product_name}>{c.product_name}</h3>
                     {selected && <span className="chip bg-brand-600 text-white"><Check size={12} strokeWidth={3} /> In your contract</span>}
-                    {c.demo && <span className="chip bg-amber-50 text-[10px] font-semibold uppercase text-amber-700 dark:bg-amber-950" title="Fictional demo store, enabled for testing">Demo store (fictional)</span>}
+                    {c.demo && <span className="chip bg-amber-50 text-[10px] font-semibold uppercase text-amber-700 dark:bg-amber-950" title="A sample merchant whose checkout CHECKMATE can inspect before paying with PayPal. Its products are fictional.">Partner merchant · sample products</span>}
                     {c.engine && <span className="chip bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-600 dark:bg-slate-800 dark:text-slate-300" title="Where this listing was found">{SOURCE_NAMES[c.engine] ?? c.engine}</span>}
                     {c.sponsored && <span className="chip bg-slate-100 px-2 py-0.5 text-[10px] uppercase text-slate-500 dark:bg-slate-800" title="Paid placement on the source site">Sponsored</span>}
                     {c.condition && <span className={`chip px-2 py-0.5 text-[10px] font-semibold ${/new/i.test(c.condition) ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950" : "bg-amber-50 text-amber-800 dark:bg-amber-950"}`}>{c.condition}</span>}
@@ -790,9 +793,11 @@ export function VerificationCard({ verification, scenarios, canVerify, busy, onV
 }
 
 /* ============================================================= payment */
-export function PaymentCard({ wf, payment, busy, onPay, onCapture }: {
+export function PaymentCard({ wf, payment, busy, onPay, onCapture, onRefund }: {
   wf: Workflow; payment?: Payment; busy: boolean; onPay: () => void; onCapture: (id: string) => void;
+  onRefund?: (id: string, reason: string) => void;
 }) {
+  const refunded = payment?.refund_status === "COMPLETED" || payment?.refund_status === "PENDING";
   const v = wf.verification;
   const canPay = ["PAYMENT_PENDING_APPROVAL", "PAYMENT_FAILED"].includes(wf.state) && v?.status === "PASS";
   const st = payment?.payment_status;
@@ -800,6 +805,8 @@ export function PaymentCard({ wf, payment, busy, onPay, onCapture }: {
     { label: "Order created", done: !!payment?.paypal_order_id, sub: payment?.paypal_order_id },
     { label: "You approved on PayPal", done: ["APPROVED", "CAPTURING", "CAPTURED", "PENDING"].includes(st ?? "") || !!payment?.paypal_capture_id },
     { label: "Payment captured", done: st === "CAPTURED", sub: payment?.paypal_capture_id ?? undefined },
+    ...(refunded ? [{ label: `Refunded ${money(payment?.refunded_amount, payment?.captured_currency)}${payment?.refund_status === "PENDING" ? " (pending)" : ""}`,
+                      done: true, sub: payment?.refund_id ?? undefined }] : []),
   ];
   return (
     <Card id="pay" title="PayPal payment" icon={<CreditCard size={15} />}
@@ -836,6 +843,18 @@ export function PaymentCard({ wf, payment, busy, onPay, onCapture }: {
           <Refresh size={15} /> {st === "UNCERTAIN" ? "Re-check PayPal & complete" : "Complete capture"}
         </button>
       )}
+      {st === "CAPTURED" && payment && !refunded && onRefund && (
+        <button className="btn-secondary mt-2 w-full" disabled={busy}
+                onClick={() => {
+                  const reason = wf.has_discrepancy ? "The merchant's receipt doesn't match the PayPal charge" : "Item returned";
+                  if (window.confirm(`Refund ${money(payment.captured_amount, payment.captured_currency)} to your PayPal account?
+
+Reason: ${reason}`)) onRefund(payment.id, reason);
+                }}>
+          <Refresh size={15} /> Refund with PayPal
+        </button>
+      )}
+      {refunded && payment?.refund_reason && <p className="mt-2 text-xs text-slate-500">Refund reason: {payment.refund_reason}</p>}
       <p className="mt-3 flex gap-1.5 text-[11px] text-slate-400"><ShieldCheck size={13} className="shrink-0" />The policy engine re-authorises every capture. Retries can never charge you twice.</p>
     </Card>
   );

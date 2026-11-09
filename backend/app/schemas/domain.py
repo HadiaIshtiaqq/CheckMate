@@ -67,6 +67,7 @@ class ShoppingIntent(BaseModel):
     parser: str = "rules"
     market: str | None = None           # which country's stores to search (us, uk, ca, au, de, fr, in)
     search_depth: str = "standard"      # quick | standard | wide
+    source: str | None = None           # stores (real, via SerpAPI) | partner (PayPal partner merchant) | None
 
     @property
     def needs_clarification(self) -> bool:

@@ -35,6 +35,7 @@ export default function Dashboard() {
   const [mode, setMode] = useState("ASSISTED");
   const [market, setMarket] = useState("us");
   const [depth, setDepth] = useState<"quick" | "standard" | "wide">("standard");
+  const [source, setSource] = useState<"stores" | "partner">("stores");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<WorkflowSummary[] | null>(null);
@@ -50,6 +51,7 @@ export default function Dashboard() {
     }
     api<SystemInfo>("/api/v1/system").then((info) => {
       setSys(info);
+      if (!info.real_stores_connected && info.demo_store_enabled) setSource("partner");
       const allowed = info.search_options.allowed_depths;
       if (allowed?.length) setDepth((d) => (allowed.includes(d) ? d : allowed[allowed.length - 1]));
     }).catch(() => setSys(null));
@@ -63,7 +65,8 @@ export default function Dashboard() {
     setBusy(true);
     setError(null);
     try {
-      const r = await post<{ workflow_id: string }>("/api/v1/shopping/intents", { text, autonomy_mode: mode, market, search_depth: depth });
+      const r = await post<{ workflow_id: string }>("/api/v1/shopping/intents", { text, autonomy_mode: mode, market, search_depth: depth,
+        source: sys?.real_stores_connected && sys?.demo_store_enabled ? source : undefined });
       router.push(`/workflows/${r.workflow_id}`);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not reach the CHECKMATE API. Is the backend running on port 8000?");
@@ -102,12 +105,27 @@ export default function Dashboard() {
             </p>
 
             <div className="mt-6 rounded-2xl bg-white p-3 text-slate-900 shadow-xl shadow-brand-200/60 dark:bg-slate-900 dark:text-slate-100">
+              {sys?.real_stores_connected && sys?.demo_store_enabled && (
+                <div className="mb-2 grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Where to shop">
+                  {([
+                    { v: "stores", t: "Real stores", d: "Compare live offers from Google Shopping, Amazon, eBay & Walmart, then buy at the store." },
+                    { v: "partner", t: "PayPal checkout", d: "Partner merchant: CHECKMATE inspects the checkout, then you pay with PayPal (Sandbox)." },
+                  ] as const).map((o) => (
+                    <button key={o.v} type="button" role="radio" aria-checked={source === o.v} onClick={() => setSource(o.v)}
+                            className={`rounded-xl p-3 text-left ring-1 ring-inset transition ${source === o.v
+                              ? "bg-brand-50 ring-brand-400 dark:bg-brand-950/40" : "bg-slate-50 ring-slate-200 hover:bg-slate-100 dark:bg-slate-800/60 dark:ring-slate-700"}`}>
+                      <div className={`text-sm font-bold ${source === o.v ? "text-brand-700 dark:text-brand-300" : "text-slate-700 dark:text-slate-200"}`}>{o.t}</div>
+                      <div className="mt-0.5 text-[11px] leading-snug text-slate-500">{o.d}</div>
+                    </button>
+                  ))}
+                </div>
+              )}
               <label htmlFor="composer" className="sr-only">Shopping request</label>
               <textarea id="composer" className="min-h-[88px] w-full resize-none rounded-xl border-0 bg-transparent p-2 text-[15px] leading-relaxed outline-none placeholder:text-slate-400"
                         value={text} onChange={(e) => setText(e.target.value)} maxLength={2000}
                         placeholder="e.g. Find wireless headphones under $110 with free returns and no subscription"
                         onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit(); }} />
-              {sys?.real_stores_connected && (
+              {sys?.real_stores_connected && !(sys.demo_store_enabled && source === "partner") && (
                 <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 px-1 py-3 text-xs dark:border-slate-800">
                   <label className="flex items-center gap-2 font-semibold text-slate-600 dark:text-slate-300">
                     <Store size={14} /> Stores in

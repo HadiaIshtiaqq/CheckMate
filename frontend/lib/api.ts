@@ -128,6 +128,7 @@ export interface Payment {
   approve_url: string | null; amount: string; currency: string; captured_amount: string | null;
   captured_currency: string | null; payment_status: string; idempotency_key: string; error: string | null;
   verification_id: string; contract_version: number;
+  refund_id?: string | null; refund_status?: string | null; refunded_amount?: string | null; refund_reason?: string | null;
 }
 
 export interface AgentRun {

@@ -31,19 +31,21 @@ class CatalogRouter:
 
     def search(self, query: str | None, category: str | None, budget: str | None = None,
                currency: str | None = None, specs: dict | None = None, color: str | None = None,
-               market: str | None = None, depth: str = "standard", alt_query: str | None = None) -> list[dict]:
+               market: str | None = None, depth: str = "standard", alt_query: str | None = None,
+               source: str | None = None) -> list[dict]:
+        """source: 'stores' = real stores only, 'partner' = PayPal partner merchant only, None = all."""
         if not self.external and not self.demo:
             raise ProductSourceError(NO_SOURCE)
         results: list[dict] = []
         errors: list[str] = []
-        if self.external:
+        if self.external and source != "partner":
             try:
                 results += self.external.search_products(query, category, budget=budget, currency=currency,
                                                          specs=specs, color=color, market=market, depth=depth,
                                                          alt_query=alt_query)
             except ProductSourceError as e:
                 errors.append(str(e))
-        if self.demo:
+        if self.demo and source != "stores":
             results += self.demo.search_products(query, category)
         if not results and errors:
             raise ProductSourceError(errors[0])

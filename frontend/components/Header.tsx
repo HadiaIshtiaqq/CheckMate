@@ -71,7 +71,7 @@ export default function Header() {
                 ? "bg-sky-50 text-sky-700 ring-sky-600/20 dark:bg-sky-950 dark:text-sky-300"
                 : "bg-amber-50 text-amber-800 ring-amber-600/20 dark:bg-amber-950 dark:text-amber-300"}`}
                     title={sys.paypal_environment === "sandbox" ? "Real PayPal Sandbox" : "Simulated PayPal — no money moves"}>
-                <Lock size={12} /> Demo store · PayPal {sys.paypal_environment === "sandbox" ? "Sandbox" : "Simulated"}
+                <Lock size={12} /> PayPal checkout · {sys.paypal_environment === "sandbox" ? "Sandbox" : "Simulated"}
               </span>}
               <span className="chip hidden bg-slate-100 text-slate-700 ring-1 ring-inset ring-slate-500/10 md:inline-flex dark:bg-slate-800 dark:text-slate-300"
                     title="Language model used by the agents (rules always enforce the final decision)">

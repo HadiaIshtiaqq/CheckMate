@@ -225,7 +225,8 @@ export default function WorkflowPage({ params }: { params: { id: string } }) {
           )}
           {contract && !external && wf.autonomy_mode !== "MONITORING_ONLY" && (
             <PaymentCard wf={wf} payment={payment} busy={busy} onPay={startPayPal}
-                         onCapture={(pid) => act(() => post(`/api/v1/payments/${pid}/capture`), "Payment captured.")} />
+                         onCapture={(pid) => act(() => post(`/api/v1/payments/${pid}/capture`), "Payment captured.")}
+                         onRefund={(pid, reason) => act(() => post(`/api/v1/payments/${pid}/refund`, { reason }), "Refunded through PayPal.")} />
           )}
         </div>
       </div>

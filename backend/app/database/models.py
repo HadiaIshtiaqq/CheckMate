@@ -29,6 +29,7 @@ class Workflow(Base):
     autonomy_mode: Mapped[str] = mapped_column(String(20), default="ASSISTED")
     market: Mapped[str | None] = mapped_column(String(4), nullable=True)
     search_depth: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    source: Mapped[str | None] = mapped_column(String(12), nullable=True)  # stores | partner | None (all)
     raw_request: Mapped[str] = mapped_column(Text)
     intent: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     evaluations: Mapped[list | None] = mapped_column(JSON, nullable=True)
@@ -166,6 +167,10 @@ class PaymentTransaction(Base):
     payment_status: Mapped[str] = mapped_column(String(20), index=True)
     paypal_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    refund_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    refund_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    refunded_amount: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    refund_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow)
 

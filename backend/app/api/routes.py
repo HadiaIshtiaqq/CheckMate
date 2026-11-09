@@ -33,6 +33,7 @@ class IntentIn(BaseModel):
     autonomy_mode: str = "ASSISTED"
     market: str | None = Field(default=None, max_length=4)
     search_depth: str = "standard"
+    source: str | None = Field(default=None, max_length=12)
 
 
 class PurchaseReportIn(BaseModel):
@@ -105,7 +106,7 @@ def search_quota(user: User = Depends(current_user)):
 def submit_intent(body: IntentIn, bg: BackgroundTasks, user: User = Depends(serialized_user),
                   db: Session = Depends(get_db)):
     wf = svc.create_workflow(db, user.id, body.text.strip(), body.autonomy_mode, market=body.market,
-                             search_depth=body.search_depth)
+                             search_depth=body.search_depth, source=body.source)
     bg.add_task(svc.run_pipeline, wf.id)
     return {"workflow_id": wf.id, "state": wf.state}
 
@@ -244,6 +245,15 @@ def create_order(body: OrderIn, user: User = Depends(serialized_user), db: Sessi
 @router.post("/payments/{payment_id}/capture")
 def capture(payment_id: str, user: User = Depends(serialized_user), db: Session = Depends(get_db)):
     return payment_view(svc.capture_payment(db, user.id, payment_id))
+
+
+class RefundIn(BaseModel):
+    reason: str | None = Field(default=None, max_length=200)
+
+
+@router.post("/payments/{payment_id}/refund")
+def refund(payment_id: str, body: RefundIn, user: User = Depends(serialized_user), db: Session = Depends(get_db)):
+    return payment_view(svc.refund_payment(db, user.id, payment_id, body.reason))
 
 
 @router.post("/payments/{payment_id}/cancel")

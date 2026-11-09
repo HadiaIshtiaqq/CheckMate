@@ -43,6 +43,7 @@ class PayPalGateway(Protocol):
     def create_order(self, payload: dict, request_id: str) -> dict: ...
     def get_order(self, order_id: str) -> dict: ...
     def capture_order(self, order_id: str, request_id: str) -> dict: ...
+    def refund_capture(self, capture_id: str, request_id: str, note: str | None = None) -> dict: ...
     def verify_webhook(self, headers: dict[str, str], raw_body: bytes) -> bool: ...
 
 
@@ -131,6 +132,12 @@ class PayPalSandboxClient:
 
     def capture_order(self, order_id: str, request_id: str) -> dict:
         return self._request("POST", f"/v2/checkout/orders/{order_id}/capture", json_body={}, request_id=request_id)
+
+    def refund_capture(self, capture_id: str, request_id: str, note: str | None = None) -> dict:
+        """Full refund of a capture (Payments v2). PayPal-Request-Id makes retries safe."""
+        body = {"note_to_payer": note[:255]} if note else {}
+        return self._request("POST", f"/v2/payments/captures/{capture_id}/refund", json_body=body,
+                             request_id=request_id)
 
     def verify_webhook(self, headers: dict[str, str], raw_body: bytes) -> bool:
         if not self._webhook_id:
@@ -291,6 +298,27 @@ class MockPayPalClient:
                 self.fail_next_capture_with_timeout = False
                 raise PayPalTimeout("simulated network timeout after capture")
             return response
+
+    def refund_capture(self, capture_id: str, request_id: str, note: str | None = None) -> dict:
+        with self._lock, self._sessions() as db:
+            prior = self._idempotent(db, request_id)
+            if prior:
+                return prior
+            for row in db.query(MockPayPalOrder).all():
+                caps = ((row.body.get("purchase_units") or [{}])[0].get("payments") or {}).get("captures") or []
+                cap = next((x for x in caps if x.get("id") == capture_id), None)
+                if cap is None:
+                    continue
+                if row.body.get("refund"):
+                    raise PayPalError(422, "UNPROCESSABLE_ENTITY", "Capture has already been fully refunded.",
+                                      details=[{"issue": "CAPTURE_FULLY_REFUNDED"}])
+                refund = {"id": "MOCKREF" + new_id("r").split("_", 1)[1][:10].upper(), "status": "COMPLETED",
+                          "amount": dict(cap["amount"]), "note_to_payer": note, "create_time": utcnow().isoformat()}
+                row.body = {**row.body, "refund": refund}
+                db.add(MockPayPalRequest(request_id=request_id, response=refund))
+                db.commit()
+                return refund
+            raise PayPalError(404, "RESOURCE_NOT_FOUND", "The specified resource does not exist.")
 
     # --- webhooks: HMAC-signed locally in simulation mode ---------------------
     def sign_webhook(self, raw_body: bytes) -> str:

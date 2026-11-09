@@ -32,7 +32,8 @@ def payment_view(p: PaymentTransaction) -> dict:
             "approve_url": p.approve_url, "amount": p.amount, "currency": p.currency,
             "captured_amount": p.captured_amount, "captured_currency": p.captured_currency,
             "payment_status": p.payment_status, "paypal_status": p.paypal_status, "idempotency_key": p.idempotency_key,
-            "error": p.error, "created_at": p.created_at.isoformat(), "updated_at": p.updated_at.isoformat()}
+            "error": p.error, "refund_id": p.refund_id, "refund_status": p.refund_status,
+            "refunded_amount": p.refunded_amount, "refund_reason": p.refund_reason, "created_at": p.created_at.isoformat(), "updated_at": p.updated_at.isoformat()}
 
 
 def contract_view(db: Session, row: PurchaseContract) -> dict:

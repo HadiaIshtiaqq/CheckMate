@@ -64,3 +64,17 @@ test("accounts are isolated", async ({ page, browser }) => {
   await other.goto(url);
   await expect(other.getByText(/doesn't exist or belongs to another user/)).toBeVisible();
 });
+
+test("captured PayPal payment can be refunded", async ({ page }) => {
+  await signUp(page);
+  await startWorkflow(page);
+  await page.getByRole("button", { name: /Approve contract v1/ }).first().click();
+  await page.getByRole("button", { name: /Verify final checkout/ }).click();
+  await page.getByRole("button", { name: /Pay with/ }).first().click();
+  await page.getByRole("button", { name: /Approve & continue/ }).click();
+  await expect(page.getByText("Purchase complete and verified")).toBeVisible({ timeout: 30_000 });
+  page.once("dialog", (d) => d.accept());
+  await page.getByRole("button", { name: /Refund with PayPal/ }).click();
+  await expect(page.getByText(/^Refunded /)).toBeVisible();
+  await expect(page.getByRole("button", { name: /Refund with PayPal/ })).toHaveCount(0);
+});

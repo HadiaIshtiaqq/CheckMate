@@ -173,7 +173,7 @@ def _ttl() -> timedelta:
 
 # =============================================================== pipeline ====
 def create_workflow(db: Session, user_id: str, text: str, autonomy_mode: str, market: str | None = None,
-                    search_depth: str = "standard") -> Workflow:
+                    search_depth: str = "standard", source: str | None = None) -> Workflow:
     from app.integrations.merchants.serpapi_shopping import DEPTHS, MARKETS
 
     if autonomy_mode not in AUTONOMY_MODES:
@@ -182,19 +182,27 @@ def create_workflow(db: Session, user_id: str, text: str, autonomy_mode: str, ma
         raise ServiceError(f"market must be one of {', '.join(MARKETS)}")
     if search_depth not in DEPTHS:
         raise ServiceError(f"search_depth must be one of {', '.join(DEPTHS)}")
+    if source not in (None, "stores", "partner"):
+        raise ServiceError("source must be 'stores' or 'partner'")
+    c = get_container()
+    if source == "partner" and c.merchant is None:
+        raise ServiceError("The PayPal partner merchant isn't enabled on this server.")
+    if source == "stores" and c.external is None:
+        raise ServiceError("Real-store search isn't connected on this server.")
     s = get_settings()
     order = list(DEPTHS)
     if s.max_search_depth in DEPTHS and order.index(search_depth) > order.index(s.max_search_depth):
         search_depth = s.max_search_depth  # deployment cap protects the shared search quota
-    if s.requests_per_user_per_day:
+    if s.requests_per_user_per_day and source != "partner":  # partner checkouts spend no search quota
         since = utcnow() - timedelta(days=1)
         used = db.scalar(select(func.count()).select_from(Workflow)
-                         .where(Workflow.user_id == user_id, Workflow.created_at >= since)) or 0
+                         .where(Workflow.user_id == user_id, Workflow.created_at >= since,
+                                (Workflow.source.is_(None)) | (Workflow.source != "partner"))) or 0
         if used >= s.requests_per_user_per_day:
             raise RateLimited(f"You've reached this demo's limit of {s.requests_per_user_per_day} shopping "
                               "requests per day. Please try again tomorrow.")
     wf = Workflow(id=new_id("wf"), user_id=user_id, state=WS.CREATED.value, autonomy_mode=autonomy_mode,
-                  raw_request=text, market=market, search_depth=search_depth)
+                  raw_request=text, market=market, search_depth=search_depth, source=source)
     db.add(wf)
     db.commit()
     emit(db, wf, "intent.created", "Shopping request received", payload={"autonomy_mode": autonomy_mode})
@@ -258,6 +266,7 @@ def apply_market(intent: ShoppingIntent, wf: Workflow) -> None:
     from app.integrations.merchants.serpapi_shopping import MARKET_BY_CURRENCY, MARKETS
 
     intent.search_depth = wf.search_depth or "standard"
+    intent.source = wf.source
     if wf.market in MARKETS:
         intent.market = wf.market
         cur = MARKETS[wf.market]["currency"]
@@ -900,6 +909,38 @@ def cancel_payment(db: Session, user_id: str, payment_id: str) -> PaymentTransac
     db.commit()
     emit(db, db.get(Workflow, p.workflow_id), "payment.cancelled", "Payment cancelled before capture",
          payload={"payment_id": p.id})
+    return p
+
+
+def refund_payment(db: Session, user_id: str, payment_id: str, reason: str | None = None) -> PaymentTransaction:
+    """Full PayPal refund of a captured payment, e.g. when reconciliation finds the merchant's
+    receipt doesn't match what was paid, or the buyer returns the item."""
+    p = owned_payment(db, user_id, payment_id)
+    if p.payment_status != "CAPTURED" or not p.paypal_capture_id:
+        raise Conflict("Only a captured PayPal payment can be refunded")
+    if p.refund_status == "COMPLETED":
+        raise Conflict("This payment has already been refunded")
+    wf = db.get(Workflow, p.workflow_id)
+    why = (reason or "").strip()[:200] or "Refund requested by the buyer"
+    try:
+        r = get_container().paypal.refund_capture(p.paypal_capture_id, request_id=f"refund-{p.id}",
+                                                  note=f"CHECKMATE: {why}")
+    except PayPalTimeout:
+        raise Conflict("PayPal didn't answer in time. The refund may still go through; try again to check.")
+    except PayPalError as e:
+        if e.issue == "CAPTURE_FULLY_REFUNDED":
+            p.refund_status = "COMPLETED"
+            db.commit()
+            return p
+        raise Conflict(f"PayPal refused the refund: {e.message}")
+    amt = r.get("amount") or {}
+    p.refund_id, p.refund_status = r.get("id"), r.get("status") or "PENDING"
+    p.refunded_amount = amt.get("value") or p.captured_amount
+    p.refund_reason = why
+    db.commit()
+    emit(db, wf, "payment.refunded",
+         f"PayPal refund {p.refund_status.lower()}: {p.refunded_amount} {amt.get('currency_code') or p.captured_currency}",
+         payload={"payment_id": p.id, "refund_id": p.refund_id, "status": p.refund_status, "reason": why})
     return p
 
 

@@ -110,7 +110,8 @@ class DiscoveryAgent(BaseAgent):
             "catalog.search", search_query(intent), intent.category,
             budget=str(intent.max_budget) if intent.max_budget is not None else None,
             currency=intent.currency, specs=intent.specifications, color=intent.preferred_variant,
-            market=intent.market, depth=intent.search_depth, alt_query=alternate_query(intent))
+            market=intent.market, depth=intent.search_depth, alt_query=alternate_query(intent),
+            source=intent.source)
         candidates: list[ProductCandidate] = []
         for l in listings:
             if l["id"] in exclude or l.get("currency") is None:

@@ -48,7 +48,11 @@ export default function Dashboard() {
       window.history.replaceState(null, "", "/");
       document.getElementById("composer")?.focus();
     }
-    api<SystemInfo>("/api/v1/system").then(setSys).catch(() => setSys(null));
+    api<SystemInfo>("/api/v1/system").then((info) => {
+      setSys(info);
+      const allowed = info.search_options.allowed_depths;
+      if (allowed?.length) setDepth((d) => (allowed.includes(d) ? d : allowed[allowed.length - 1]));
+    }).catch(() => setSys(null));
     const load = () => api<WorkflowSummary[]>("/api/v1/workflows").then(setRows).catch(() => setRows([]));
     load();
     const t = setInterval(load, 5000);
@@ -112,7 +116,7 @@ export default function Dashboard() {
                     </select>
                   </label>
                   <div className="flex rounded-xl bg-slate-100 p-1 font-semibold dark:bg-slate-800" role="radiogroup" aria-label="Search depth">
-                    {(["quick", "standard", "wide"] as const).map((d) => {
+                    {(sys.search_options.allowed_depths ?? (["quick", "standard", "wide"] as const)).map((d) => {
                       const n = sys.search_options.depths[d]?.[market] ?? 1;
                       const label = { quick: "Quick", standard: "Standard", wide: "Wide" }[d];
                       return (

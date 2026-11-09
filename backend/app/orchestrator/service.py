@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.agents.base import AgentRunResult
 from app.agents.contract_agent import build_contract_terms, rank_eligible
 from app.agents.payment_agent import PaymentAgent, PaymentOutcome, build_order_payload
+from app.core.config import get_settings
 from app.core.util import hash_obj, money, money_str, new_id, to_jsonable, utcnow
 from app.database.models import (
     PurchasingMandate,
@@ -88,6 +89,10 @@ class Conflict(ServiceError):
 
 class Forbidden(ServiceError):
     status_code = 403
+
+
+class RateLimited(ServiceError):
+    status_code = 429
 
 
 # ================================================================ helpers ====
@@ -177,6 +182,17 @@ def create_workflow(db: Session, user_id: str, text: str, autonomy_mode: str, ma
         raise ServiceError(f"market must be one of {', '.join(MARKETS)}")
     if search_depth not in DEPTHS:
         raise ServiceError(f"search_depth must be one of {', '.join(DEPTHS)}")
+    s = get_settings()
+    order = list(DEPTHS)
+    if s.max_search_depth in DEPTHS and order.index(search_depth) > order.index(s.max_search_depth):
+        search_depth = s.max_search_depth  # deployment cap protects the shared search quota
+    if s.requests_per_user_per_day:
+        since = utcnow() - timedelta(days=1)
+        used = db.scalar(select(func.count()).select_from(Workflow)
+                         .where(Workflow.user_id == user_id, Workflow.created_at >= since)) or 0
+        if used >= s.requests_per_user_per_day:
+            raise RateLimited(f"You've reached this demo's limit of {s.requests_per_user_per_day} shopping "
+                              "requests per day. Please try again tomorrow.")
     wf = Workflow(id=new_id("wf"), user_id=user_id, state=WS.CREATED.value, autonomy_mode=autonomy_mode,
                   raw_request=text, market=market, search_depth=search_depth)
     db.add(wf)

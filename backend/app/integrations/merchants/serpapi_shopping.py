@@ -150,7 +150,11 @@ def search_plan(market: str, depth: str, query: str, alt_query: str | None = Non
 
 
 def search_options() -> dict:
-    return {"markets": [{"code": k, "name": v["name"], "currency": v["currency"],
+    from app.core.config import get_settings
+
+    cap = get_settings().max_search_depth
+    allowed = list(DEPTHS)[: list(DEPTHS).index(cap) + 1] if cap in DEPTHS else list(DEPTHS)
+    return {"allowed_depths": allowed,"markets": [{"code": k, "name": v["name"], "currency": v["currency"],
                          "sources": [ENGINE_LABELS[e] for e, _ in search_plan(k, "wide", "q")]}
                         for k, v in MARKETS.items()],
             "depths": {d: {k: len({e for e, _ in search_plan(k, d, "a", "b")}) +
@@ -174,7 +178,8 @@ class SerpApiShoppingAdapter(MerchantAdapter):
                                       "get_purchase_terms", "quote_tax"})
 
     def __init__(self, api_key: str, session_factory: sessionmaker, cache_ttl: float = 3600, max_results: int = 20,
-                 timeout: float = 25.0, transport: httpx.BaseTransport | None = None):
+                 timeout: float = 25.0, transport: httpx.BaseTransport | None = None,
+                 daily_limit: int = 0, reserve: int = 0):
         self._key = api_key
         self._sessions = session_factory
         self._ttl = cache_ttl
@@ -186,6 +191,35 @@ class SerpApiShoppingAdapter(MerchantAdapter):
         self.searches_made = 0
         self.last_errors: list[str] = []
         self._quota: tuple[float, dict | None] = (0.0, None)
+        self._daily_limit = max(0, daily_limit)
+        self._reserve = max(0, reserve)
+        self._day: str = ""
+        self._day_count = 0
+
+    # ---------------------------------------------------------------- budget
+    def _check_budget(self) -> None:
+        """Refuses a new (uncached) search when today's cap is used up or the monthly
+        quota is down to the protected reserve. Cached results are always served."""
+        today = utcnow().date().isoformat()
+        with self._lock:
+            if self._day != today:
+                self._day, self._day_count = today, 0
+            if self._daily_limit and self._day_count >= self._daily_limit:
+                raise ProductSourceError("Today's live-search allowance for this demo is used up. "
+                                         "It resets at midnight UTC; earlier searches are still available.")
+        if self._reserve:
+            q = self.quota(max_age=60)
+            left = q.get("searches_left") if q else None
+            if left is None or left <= self._reserve:
+                raise ProductSourceError("Live store search is paused to protect this demo's monthly search "
+                                         "quota. Please try again later.")
+
+    def _count_search(self) -> None:
+        with self._lock:
+            self._day_count += 1
+            at, q = self._quota
+            if q and isinstance(q.get("searches_left"), int):
+                self._quota = (at, {**q, "searches_left": q["searches_left"] - 1})
 
     # ----------------------------------------------------------------- quota
     def quota(self, max_age: float = 300) -> dict | None:
@@ -252,11 +286,13 @@ class SerpApiShoppingAdapter(MerchantAdapter):
         elif engine == "walmart":
             params.update({"query": q})
         label = ENGINE_LABELS[engine]
+        self._check_budget()
         try:
             r = self._http.get(SERPAPI_URL, params=params)
         except httpx.HTTPError as e:
             raise ProductSourceError(f"{label} search failed ({e.__class__.__name__}). Try again.") from e
         self.searches_made += 1
+        self._count_search()
         try:
             data = r.json()
         except ValueError as e:

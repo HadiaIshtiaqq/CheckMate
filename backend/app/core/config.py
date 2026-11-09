@@ -89,6 +89,10 @@ class Settings:
     serpapi_key: str | None = None
     serpapi_cache_seconds: float = 3600.0
     serpapi_max_results: int = 20
+    serpapi_daily_limit: int = 0          # 0 = no daily cap on real searches
+    serpapi_reserve: int = 0              # searches public use may never spend
+    max_search_depth: str = "wide"        # quick | standard | wide
+    requests_per_user_per_day: int = 0    # 0 = unlimited shopping requests per account
     demo_catalog_enabled: bool = False
     jobs_enabled: bool = True
     jobs_interval_seconds: float = 60.0
@@ -136,7 +140,8 @@ def get_settings() -> Settings:
         raise RuntimeError("PAYPAL_MODE must be 'sandbox' or 'mock'. Live payments are not supported.")
     if mode == "sandbox" and not (client_id and secret):
         raise RuntimeError("PAYPAL_MODE=sandbox requires PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET.")
-    frontend = _env("FRONTEND_URL", "http://localhost:3000")
+    # RENDER_EXTERNAL_URL is set automatically on Render (the site's public https address).
+    frontend = _env("FRONTEND_URL") or _env("RENDER_EXTERNAL_URL") or "http://localhost:3000"
     app_env = (_env("APP_ENV", "development") or "development").lower()
     gemini_keys = _csv(_env("GEMINI_API_KEYS")) + _csv(_env("GEMINI_API_KEY")) + _csv(_env("GOOGLE_API_KEY"))
     provider = (_env("LLM_PROVIDER", "auto") or "auto").lower()
@@ -171,6 +176,10 @@ def get_settings() -> Settings:
         serpapi_key=_env("SERPAPI_KEY") or _env("SERPAPI_API_KEY"),
         serpapi_cache_seconds=float(_env("SERPAPI_CACHE_SECONDS", "3600")),
         serpapi_max_results=int(_env("SERPAPI_MAX_RESULTS", "20")),
+        serpapi_daily_limit=int(_env("SERPAPI_DAILY_LIMIT", "0")),
+        serpapi_reserve=int(_env("SERPAPI_RESERVE", "0")),
+        max_search_depth=(_env("MAX_SEARCH_DEPTH", "wide") or "wide").lower(),
+        requests_per_user_per_day=int(_env("REQUESTS_PER_USER_PER_DAY", "0")),
         demo_catalog_enabled=_bool("DEMO_CATALOG_ENABLED", False),
         jobs_interval_seconds=float(_env("JOBS_INTERVAL_SECONDS", "60")),
         allow_registration=_bool("ALLOW_REGISTRATION", True),

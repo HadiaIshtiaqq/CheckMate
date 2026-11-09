@@ -179,5 +179,6 @@ export interface SystemInfo {
   search_options: {
     markets: { code: string; name: string; currency: string; sources: string[] }[];
     depths: Record<"quick" | "standard" | "wide", Record<string, number>>;
+    allowed_depths?: ("quick" | "standard" | "wide")[];
   };
 }

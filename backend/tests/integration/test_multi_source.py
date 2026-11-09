@@ -170,3 +170,60 @@ def test_search_quota_is_read_from_account_endpoint_and_cached():
 
 def test_search_quota_endpoint_requires_sign_in(client):
     assert client.get("/api/v1/system/search-quota").status_code == 401
+
+
+def _counting_adapter(left=100, **kw):
+    import httpx
+    from app.integrations.merchants.serpapi_shopping import SerpApiShoppingAdapter
+
+    searches = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path == "/account.json":
+            return httpx.Response(200, json={"total_searches_left": left})
+        searches.append(req.url.params.get("q"))
+        return httpx.Response(200, json={"shopping_results": []})
+
+    return SerpApiShoppingAdapter("k", SessionLocal, transport=httpx.MockTransport(handler), **kw), searches
+
+
+def test_daily_search_cap_blocks_new_searches_but_serves_cache():
+    from app.integrations.merchants.serpapi_shopping import ProductSourceError
+
+    a, searches = _counting_adapter(daily_limit=2)
+    a.search_products("kettle", None, currency="USD", depth="quick")
+    a.search_products("toaster", None, currency="USD", depth="quick")
+    with pytest.raises(ProductSourceError, match="allowance"):
+        a.search_products("blender", None, currency="USD", depth="quick")
+    a.search_products("kettle", None, currency="USD", depth="quick")  # cached: free and allowed
+    assert len(searches) == 2
+
+
+def test_reserve_protects_monthly_quota():
+    from app.integrations.merchants.serpapi_shopping import ProductSourceError
+
+    a, searches = _counting_adapter(left=21, reserve=20)
+    a.search_products("kettle", None, currency="USD", depth="quick")  # 21 -> 20
+    with pytest.raises(ProductSourceError, match="paused"):
+        a.search_products("toaster", None, currency="USD", depth="quick")
+    assert len(searches) == 1
+
+
+def test_depth_cap_and_per_user_daily_limit(client, monkeypatch):
+    import dataclasses
+    import app.orchestrator.service as svc
+    from app.core.config import get_settings
+
+    capped = dataclasses.replace(get_settings(), max_search_depth="quick", requests_per_user_per_day=1)
+    monkeypatch.setattr(svc, "get_settings", lambda: capped)
+    from app.database.models import User
+    from app.core.util import new_id
+
+    uid = new_id("u")
+    with SessionLocal() as db:
+        db.add(User(id=uid, display_name="cap"))
+        db.commit()
+        wf = svc.create_workflow(db, uid, "a kettle under $40", "ASSISTED", search_depth="wide")
+        assert wf.search_depth == "quick"
+        with pytest.raises(svc.RateLimited):
+            svc.create_workflow(db, uid, "a toaster under $40", "ASSISTED")

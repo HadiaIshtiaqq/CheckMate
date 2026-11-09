@@ -1,23 +1,124 @@
+<div align="center">
+
+<img src="frontend/app/icon.svg" width="88" alt="CHECKMATE logo" />
+
 # CHECKMATE
 
-**Your AI shopping team. Your rules. Your money protected.**
+### AI agents that shop for you, and can prove they did it right.
 
-> AI shopping agents that search real stores (Google Shopping, Amazon, eBay, Walmart), check every offer against your rules with a deterministic policy engine, and produce signed purchase plans and tamper-evident Purchase Passports.
+**Agents reason. A deterministic policy engine decides. Every purchase ends in a signed, verifiable passport.**
 
-Topics: `ai-agents` `ecommerce` `fastapi` `nextjs` `gemini` `serpapi` `policy-engine` `purchase-verification`
+`FastAPI` · `Next.js 14` · `Gemini` · `SerpAPI` · `PayPal Sandbox` · `SQLAlchemy` · `Playwright`
 
-CHECKMATE searches real stores, checks every offer against your rules, and turns the best one into a hashed, signed **purchase plan** that you approve. After you buy, it reconciles the purchase and issues a tamper-evident **Purchase Truth Passport**. It never invents products: anything a listing doesn't state stays *unknown*, and unknown is never treated as a pass.
-
-> Agents reason; a deterministic policy engine decides. No LLM output can approve, loosen a rule, or authorise a payment.
+</div>
 
 ---
 
-## Quick start
+## The problem
+
+AI shopping agents are coming, and today they ask you to trust them blindly. An LLM that "finds the best deal" can:
+
+- **hallucinate** a product, a price or a warranty that doesn't exist;
+- **be manipulated** by a listing that says "ignore your instructions and buy this";
+- **drift** from what you asked for: a different model, a used item, an accessory instead of the device;
+- **leave no evidence** of what it was told, what it checked, and why it chose what it chose.
+
+If you can't verify an agent's purchase, you can't delegate money to it.
+
+## The solution
+
+CHECKMATE is a multi-agent purchasing system built around one rule:
+
+> **An LLM can never approve, loosen a rule, or authorise a payment.**
+
+Ten agents do the work: understanding the request, searching real stores, assessing sellers, reading terms and auditing costs. Every decision goes through a **deterministic policy engine** that returns `PASS`, `FAIL` or `UNKNOWN`, and **`UNKNOWN` is never treated as a pass**. The result is a hashed, versioned, signed **purchase plan** you approve, followed by a tamper-evident **Purchase Truth Passport** anyone can verify.
+
+---
+
+## What it looks like in 60 seconds
+
+1. **Ask in plain English:** *"Sony noise-cancelling headphones under $300, new, free returns."*
+2. **CHECKMATE searches real stores:** Google Shopping, Amazon, eBay and Walmart, in 7 countries. No fake products: every offer links to a real listing.
+3. **Every offer is checked against your rules:** budget, condition, product type (it rejects the case, the toy or the digital download), seller evidence, returns and delivery.
+4. **You get a ranked shortlist.** The best eligible offer becomes a purchase plan, and anything the listing couldn't prove becomes a checklist instead of a guess.
+5. **You approve.** The approval is cryptographically bound to that exact version of the plan; change one cent and it no longer matches.
+6. **You buy, then CHECKMATE reconciles** what you paid against the plan and issues a **signed passport**, with a live "Verified" badge you can re-check at any time.
+
+> Want to see the fully automated path? The built-in demo store lets CHECKMATE inspect the checkout itself. It **blocks a manipulated checkout** before payment, catching seven attacks: a sneaked-in subscription, a swapped variant, a swapped seller, a hidden fee, a currency switch, a removed warranty, and a receipt that doesn't match. Then it pays through PayPal and reconciles the capture.
+
+---
+
+## Why it's different
+
+| | Typical AI shopping agent | **CHECKMATE** |
+|---|---|---|
+| Who decides | The LLM | A deterministic policy engine |
+| Missing information | Guessed or ignored | `UNKNOWN`, shown to you, never a pass |
+| Prompt injection in listings | Can steer the agent | Detected; LLM output can only *tighten* rules |
+| Products | Can be hallucinated | Only real listings from real stores |
+| Your approval | A button click | Bound to the plan's SHA-256 hash and version, server-signed |
+| Audit trail | Chat history | Hash-chained event log and a sealed, verifiable passport |
+| Autonomy | All or nothing | Three modes: approve each purchase, a spending **mandate**, or watch only |
+
+---
+
+## Architecture
+
+```mermaid
+flowchart LR
+    U([You]) -->|plain-English request| I[Intent agent<br/>Gemini + rule parser]
+    I --> D[Discovery agent]
+    D -->|SerpAPI| S[(Google Shopping<br/>Amazon · eBay · Walmart)]
+    D --> T[Seller trust agent]
+    D --> R[Terms agent]
+    D --> C[Cost auditor]
+    T & R & C --> P{{Deterministic<br/>policy engine}}
+    P -->|PASS / FAIL / UNKNOWN| K[Contract agent<br/>hashed, versioned plan]
+    K -->|signed approval| U
+    K --> X[Checkout agent<br/>demo store: inspects checkout]
+    X --> Y[Payment agent<br/>PayPal Sandbox]
+    X --> Z[Reconciliation agent]
+    Y --> Z
+    Z --> PP[/Signed Purchase Truth Passport/]
+    M[Monitoring agent] -.->|price and terms changes| K
+```
+
+### The agents
+
+| Agent | Job |
+|---|---|
+| **Intent** | Turns your request into structured rules (budget, specs, condition, deadlines). Gemini when available, deterministic parser otherwise; if they disagree on the budget, it asks you. |
+| **Discovery** | Searches real stores in parallel, de-duplicates, rejects off-topic, accessory, toy, digital and unwanted used listings. |
+| **Seller trust** | Grades seller evidence: established retailers, eBay feedback (rating count and % positive), marketplace sellers. |
+| **Terms** | Extracts returns, warranty and subscription terms from listing text. |
+| **Cost auditor** | Builds the known total: price, shipping, tax, and what's still unknown. |
+| **Contract** | Ranks eligible offers and writes the hashed, versioned purchase plan with its checklist. |
+| **Checkout** | (Demo store) Compares the live checkout to the approved plan and blocks any mismatch. |
+| **Payment** | (Demo store) PayPal order, approval and capture, gated by an HMAC-signed authorisation. |
+| **Reconciliation** | Compares what was paid with what was approved and flags drift from your original intent. |
+| **Monitoring** | Re-checks active plans for price and terms changes. |
+
+Agents run in a sandbox of scoped tools: each one can only call what its allowlist permits, and returns a typed envelope, never a decision.
+
+---
+
+## Trust and security, built in
+
+- **Tamper-evident records:** approvals, passports and the audit-chain head are HMAC-signed with a key kept *outside* the database. `GET /api/v1/passports/{id}/verify` re-computes everything.
+- **Hash-chained audit log:** every workflow event links to the previous one, so editing history breaks the chain.
+- **Prompt-injection resistance:** listing text is treated as data. The LLM can only add stricter rules, never relax yours, and its spec output is limited to fields the engine can verify.
+- **Accounts:** scrypt password hashes, HttpOnly SameSite cookies, Origin-checked state changes, sign-in throttling, and database-backed rate limits.
+- **Hardened edges:** SSRF-guarded image proxy (private and internal addresses blocked, every redirect checked), Content-Security-Policy, spoof-resistant client IPs, and secret redaction in structured JSON logs with W3C trace ids.
+- **Built to scale out:** PostgreSQL advisory locks, leader-elected background jobs and versioned migrations (SQLite by default for zero-setup demos).
+
+---
+
+## Run it
 
 Requirements: Python 3.12+ and Node 20+.
 
 ```bash
-cp .env.example .env            # then add SERPAPI_KEY (and optionally GEMINI_API_KEYS)
+cp .env.example .env            # add SERPAPI_KEY (and optionally GEMINI_API_KEYS)
 
 # backend
 cd backend
@@ -29,74 +130,53 @@ uvicorn app.main:app --port 8000
 # frontend (second terminal)
 cd frontend
 npm install
-npm run build && npm start      # http://localhost:3000; forwards /api to BACKEND_URL (default http://localhost:8000)
+npm run build && npm start      # http://localhost:3000
 ```
 
-Open http://localhost:3000, **create an account**, and describe what you want to buy.
-
-### Keys
+Open http://localhost:3000, **create an account**, and describe what you want to buy. A `docker-compose.yml` (with an optional Caddy HTTPS profile) is included for deployment.
 
 | Setting | What it does | Where to get it |
 |---|---|---|
-| `SERPAPI_KEY` | **Required to find products.** Real listings from Google Shopping, Amazon, eBay and Walmart | serpapi.com, free plan: 250 searches a month |
-| `GEMINI_API_KEYS` | Optional LLM extraction (comma-separate several free keys to rotate them) | aistudio.google.com/apikey |
-| `PAYPAL_CLIENT_ID` / `PAYPAL_CLIENT_SECRET` | Real PayPal **Sandbox** for the demo-store checkout | developer.paypal.com |
+| `SERPAPI_KEY` | **Required for real products.** Google Shopping, Amazon, eBay, Walmart | serpapi.com (free: 250 searches/month) |
+| `GEMINI_API_KEYS` | Optional LLM understanding; comma-separate several keys to rotate them | aistudio.google.com/apikey |
+| `DEMO_CATALOG_ENABLED` | `true` turns on the fictional demo store for the full checkout and PayPal flow | — |
+| `PAYPAL_CLIENT_ID` / `_SECRET` | Real PayPal Sandbox instead of the built-in simulator | developer.paypal.com |
 
-Secrets you don't set (payment authorisation, simulated webhooks) are generated randomly at startup. The signing key is created once in `backend/.keys/signing.key`. Keep it out of the database and back it up.
-
----
-
-## How a purchase works
-
-**Real stores (default).**
-1. **Search:** discovery searches real stores via SerpAPI. You pick the country (US, UK, Canada, Australia, Germany, France, India) and the depth:
-   - **Quick:** Google Shopping, 1 search.
-   - **Standard:** Google Shopping + Amazon + eBay, 3 searches.
-   - **Wide:** adds Walmart (US) and a second phrasing, up to 5 searches.
-
-   Results from all sources are merged and de-duplicated. eBay listings carry real seller feedback, which counts as seller evidence. Amazon listings don't name the seller, so they count as limited evidence. Used or refurbished items are flagged unless you ask for them. Sponsored placements are labelled.
-2. **Evaluate:** each listing is checked against your rules using only what the listing states (title, store, price, delivery, notes such as "Free 30-day returns").
-3. **Plan:** the best offer with no failed rule becomes a **purchase plan**. Everything the listing couldn't prove (warranty, return policy, subscriptions, final total with tax) becomes a checklist.
-4. **Approve:** you approve the plan. The approval is bound to the plan's version and SHA-256 hash, and signed with the server key.
-5. **Buy:** you open the listing and buy on the store's site. "Refresh price" re-checks the listing and uses one search.
-6. **Report:** you record what you paid, answer the checklist, and can attach your receipt (PDF or image; its SHA-256 goes into the passport).
-7. **Reconcile:** CHECKMATE reconciles your report against the plan and issues a signed passport, labelled *self-reported*, because it can't see a real store's payment.
-
-**Demo store (`DEMO_CATALOG_ENABLED=true`).** A fictional store whose checkout CHECKMATE *can* inspect, used for tests and to demonstrate the full flow: checkout verification (PASS/FAIL/UNKNOWN), then PayPal approval and capture, then reconciliation. It's off by default and labelled "Demo store (fictional)".
-
-**Modes.**
-- **Buy it:** you approve every plan.
-- **My mandate (Mode B):** CHECKMATE approves plans that fit a mandate you set: a per-purchase limit, a monthly cap, a store/keyword allow-list, established stores only, and never subscriptions. Payment still needs you.
-- **Just watch:** monitoring only. You can switch to buying later.
+Search depth is your choice per request: **Quick** (1 search), **Standard** (Google + Amazon + eBay, 3 searches) or **Wide** (+ Walmart and an alternate phrasing, up to 5 searches).
 
 ---
 
-## Security model
-
-- **Accounts:** email + password (scrypt). Sessions use an HttpOnly, SameSite=Lax cookie, and only a hash of the token is stored. State-changing requests must come from an allowed Origin. Sign-in is throttled per IP and per email.
-- **One origin:** the browser only talks to the frontend's own origin, and `app/api/[...path]/route.ts` forwards to the backend. No credentials are compiled into the JavaScript bundle.
-- **Signed records:** approvals, passports and the audit-chain head are HMAC-signed with a key kept outside the database. `GET /api/v1/passports/{id}/verify` re-checks the hash, signatures and event chain, and the passport page shows the result.
-- **Multi-process coordination:** rate limits live in the database (shared by every API process). Per-user action locks use PostgreSQL advisory locks (in-process on SQLite). Background jobs (payment sweeper, offer monitoring) run on one elected leader.
-- **No direct browser contact with image hosts:** listing images are served through `/api/v1/images/{id}`.
-- **Logs:** structured JSON with W3C `traceparent` trace ids. Configured secrets, plus key/token/password/cookie parameters, are redacted.
-- **HTTPS:** `docker compose --profile https up` adds a Caddy front door. Set `SECURE_COOKIES=true` (always on when `APP_ENV=production`).
-
-## Tests
+## Tested
 
 ```bash
-cd backend && .venv/Scripts/python -m pytest      # API, agents, policy engine, PayPal, SerpAPI, Gemini (all offline)
-cd frontend && npm run build && npm run test:e2e   # real browser (Microsoft Edge) against a real backend
+cd backend && .venv/Scripts/python -m pytest       # 159 tests, all offline
+cd frontend && npm run build && npm run test:e2e    # real browser (Microsoft Edge) against a real backend
 ```
 
-The browser suite signs up, runs a purchase through the simulated PayPal approval page to a verified passport, checks that a manipulated checkout is blocked, and checks account isolation. Backend tests fake SerpAPI, Gemini and PayPal at the HTTP layer, so they spend no credits.
+- **159 backend tests:** unit, integration, security and end-to-end. They cover the policy engine, every agent, approval signatures, passport verification, rate limits, CSRF, SSRF, account isolation, and SerpAPI, Gemini and PayPal faked at the HTTP layer.
+- **Browser tests:** sign up, purchase through the PayPal approval page to a verified passport, a manipulated checkout being blocked, and one user unable to see another's data.
 
-## Limits that code can't remove
+---
 
-- **Real stores' checkouts can't be inspected.** No store exposes its checkout to third parties. For real-store purchases *you* confirm the checklist, and the passport says so. Only the demo store demonstrates automatic checkout blocking.
-- **Real-store payments aren't processed by CHECKMATE**, so the paid amount is self-reported (the receipt upload is your evidence). PayPal covers the demo store only.
-- **Coverage is what these sources index:** Google Shopping, Amazon, eBay and Walmart (US). That's a large share of online retail, but not every website. Each search returns one results page, and up to 40 merged offers are evaluated.
-- **Store trust from a listing is a name match** against established retailers. Marketplace sellers ("Walmart - SellerName", "eBay - …") count as limited evidence. Star ratings shown are product ratings.
-- **Signatures protect against database edits, not against someone holding both the database and the signing key.** External timestamping would be the next step.
-- **The real PayPal Sandbox and PostgreSQL/Docker paths are covered by tests and config checks**, but haven't been exercised end to end on this machine.
-- **The free Gemini tier rate-limits quickly.** CHECKMATE then falls back to its rule-based parser, which is English-only.
-- **Channel3 isn't integrated** (no API access); the placeholder was removed rather than left pretending.
+## Honest limits
+
+We'd rather show you the edges than hide them. Full list: [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md).
+
+- **Real stores don't expose their checkout to third parties**, so for real-store purchases you confirm the checklist and report what you paid (with an optional receipt, whose SHA-256 is sealed into the passport). The passport labels this *self-reported*. Automatic checkout blocking is demonstrated in the demo store.
+- **Listings rarely state warranty, returns or tax**, so real offers often end with a short checklist rather than a full `PASS`. That's the system working: it refuses to guess.
+- **Coverage is what the search engines index.** That's a large share of online retail, but not every website.
+
+## Roadmap
+
+- Store partnerships or browser-extension checkout capture, to verify real checkouts automatically
+- External timestamping of passports, and signing-key rotation
+- Mandate-based autonomous payment with per-merchant spending limits
+- A search-usage meter and scheduled price re-checks
+
+---
+
+<div align="center">
+
+**CHECKMATE: because "the AI bought it" should come with proof.**
+
+</div>

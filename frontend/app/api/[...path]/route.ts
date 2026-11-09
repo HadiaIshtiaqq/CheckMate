@@ -23,7 +23,12 @@ async function proxy(req: NextRequest, ctx: { params: { path: string[] } }): Pro
   // Earlier entries are client-supplied and could be spoofed to dodge rate limits.
   const xff = req.headers.get("x-forwarded-for");
   const lastHop = xff?.split(",").map((s) => s.trim()).filter(Boolean).pop();
-  if (lastHop) headers.set("x-forwarded-for", lastHop); else headers.delete("x-forwarded-for");
+  // On a host whose edge sets a trusted client-IP header (e.g. Cloudflare's True-Client-IP),
+  // CLIENT_IP_HEADER names it so rate limits see each visitor rather than the host's proxy.
+  const ipHeader = process.env.CLIENT_IP_HEADER?.trim().toLowerCase();
+  const edgeIp = ipHeader ? req.headers.get(ipHeader)?.split(",")[0].trim() : undefined;
+  const ip = edgeIp || lastHop;
+  if (ip) headers.set("x-forwarded-for", ip); else headers.delete("x-forwarded-for");
   const hasBody = !["GET", "HEAD"].includes(req.method);
   let upstream: Response;
   try {

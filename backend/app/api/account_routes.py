@@ -222,6 +222,14 @@ def offer_image(offer_id: str, user: User = Depends(current_user), db: Session =
     return Response(r.content, media_type=ctype, headers={"Cache-Control": "private, max-age=3600"})
 
 
+# ======================================================== client ip check ===
+@router.get("/system/client-ip")
+def my_client_ip(request: Request, user: User = Depends(current_user)):
+    """The address rate limits use for *you* (helps confirm proxy setup on a host)."""
+    seen = [h for h in ("true-client-ip", "cf-connecting-ip", "x-forwarded-for") if request.headers.get(h)]
+    return {"ip": client_ip(request), "proxy_headers_present": seen}
+
+
 # ======================================================== passport verify ===
 @router.get("/passports/{passport_id}/verify")
 def verify_passport(passport_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):

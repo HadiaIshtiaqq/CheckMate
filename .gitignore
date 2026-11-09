@@ -17,3 +17,4 @@ backend/.keys/
 e2e.db
 frontend/test-results/
 frontend/playwright-report/
+*.tsbuildinfo

@@ -18,6 +18,18 @@ services:
         sync: false
       - key: GEMINI_API_KEYS
         sync: false
+      # PayPal Sandbox app (developer.paypal.com > Apps & Credentials > Sandbox).
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
+      - key: PAYPAL_WEBHOOK_ID
+        sync: false
+      # Partner merchant: a sample store whose checkout CHECKMATE inspects before paying with PayPal.
+      - key: DEMO_CATALOG_ENABLED
+        value: "true"
+      - key: DEMO_CONTROLS_ENABLED
+        value: "true"
       # Protect the shared search quota on a public demo.
       - key: MAX_SEARCH_DEPTH
         value: quick

@@ -148,3 +148,25 @@ def test_invalid_options_rejected(client):
     assert client.post("/api/v1/shopping/intents", json={"text": KB, "market": "zz"}, headers=A).status_code == 400
     assert client.post("/api/v1/shopping/intents", json={"text": KB, "search_depth": "deep"},
                        headers=A).status_code == 400
+
+
+def test_search_quota_is_read_from_account_endpoint_and_cached():
+    import httpx
+    from app.integrations.merchants.serpapi_shopping import SerpApiShoppingAdapter
+
+    calls = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        calls.append(req.url.path)
+        assert req.url.path == "/account.json"
+        return httpx.Response(200, json={"total_searches_left": 42, "searches_per_month": 250,
+                                         "this_month_usage": 208, "plan_name": "Free Plan"})
+
+    a = SerpApiShoppingAdapter("k", None, transport=httpx.MockTransport(handler))
+    q = a.quota()
+    assert q == {"searches_left": 42, "searches_per_month": 250, "used_this_month": 208, "plan": "Free Plan"}
+    assert a.quota() == q and len(calls) == 1  # cached; never spends a search
+
+
+def test_search_quota_endpoint_requires_sign_in(client):
+    assert client.get("/api/v1/system/search-quota").status_code == 401

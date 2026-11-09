@@ -9,12 +9,17 @@ import { LogoMark, Wordmark } from "@/components/Logo";
 export default function Header() {
   const [sys, setSys] = useState<SystemInfo | null | undefined>(undefined);
   const [account, setAccount] = useState<Account | null | undefined>(undefined);
+  const [left, setLeft] = useState<number | null>(null);
   const onLogin = typeof window !== "undefined" && window.location.pathname === "/login";
 
   useEffect(() => {
     api<SystemInfo>("/api/v1/system").then(setSys).catch(() => setSys(null));
     if (window.location.pathname !== "/login") {
-      api<Account>("/api/v1/auth/me").then(setAccount).catch(() => setAccount(null));
+      api<Account>("/api/v1/auth/me").then((a) => {
+        setAccount(a);
+        api<{ searches_left: number | null }>("/api/v1/system/search-quota")
+          .then((q) => setLeft(q.searches_left)).catch(() => null);
+      }).catch(() => setAccount(null));
     } else {
       setAccount(null);
     }
@@ -53,6 +58,15 @@ export default function Header() {
                     title={sys.product_sources.join(" · ") || "No product source connected"}>
                 <Store size={12} /> {sys.real_stores_connected ? "Real stores connected" : "No store source connected"}
               </span>
+              {sys.real_stores_connected && left !== null && (
+                <span className={`chip ring-1 ring-inset ${left < 15
+                  ? "bg-rose-50 text-rose-700 ring-rose-600/20 dark:bg-rose-950 dark:text-rose-300"
+                  : left < 50 ? "bg-amber-50 text-amber-800 ring-amber-600/20 dark:bg-amber-950 dark:text-amber-300"
+                  : "bg-white text-slate-600 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-700"}`}
+                      title="SerpAPI searches left this month. Quick uses 1, Standard 3, Wide up to 5.">
+                  {left} searches left
+                </span>
+              )}
               {sys.demo_store_enabled && <span className={`chip ring-1 ring-inset ${sys.paypal_environment === "sandbox"
                 ? "bg-sky-50 text-sky-700 ring-sky-600/20 dark:bg-sky-950 dark:text-sky-300"
                 : "bg-amber-50 text-amber-800 ring-amber-600/20 dark:bg-amber-950 dark:text-amber-300"}`}

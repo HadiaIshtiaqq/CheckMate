@@ -92,6 +92,14 @@ def system_info():
             "search_options": search_options()}
 
 
+@router.get("/system/search-quota")
+def search_quota(user: User = Depends(current_user)):
+    """SerpAPI searches left this month (signed-in users only; the lookup itself is free)."""
+    ext = get_container().external
+    info = ext.quota() if ext is not None else None
+    return info or {"searches_left": None}
+
+
 # --------------------------------------------------------------- workflows ---
 @router.post("/shopping/intents", status_code=202)
 def submit_intent(body: IntentIn, bg: BackgroundTasks, user: User = Depends(serialized_user),

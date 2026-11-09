@@ -26,6 +26,7 @@ from app.integrations.merchants.base import MerchantAdapter
 
 log = logging.getLogger("checkmate.serpapi")
 SERPAPI_URL = "https://serpapi.com/search.json"
+SERPAPI_ACCOUNT_URL = "https://serpapi.com/account.json"  # free: does not count as a search
 SOURCE_LABEL = "Google Shopping via SerpAPI"
 GL_BY_CURRENCY = {"USD": "us", "GBP": "uk", "EUR": "de", "CAD": "ca", "AUD": "au", "INR": "in"}
 DOLLAR_BY_GL = {"us": "USD", "ca": "CAD", "au": "AUD"}
@@ -184,6 +185,30 @@ class SerpApiShoppingAdapter(MerchantAdapter):
         self._lock = threading.Lock()
         self.searches_made = 0
         self.last_errors: list[str] = []
+        self._quota: tuple[float, dict | None] = (0.0, None)
+
+    # ----------------------------------------------------------------- quota
+    def quota(self, max_age: float = 300) -> dict | None:
+        """Searches left this month, from SerpAPI's account endpoint (cached; free to call)."""
+        with self._lock:
+            at, cached = self._quota
+            if cached is not None and time.monotonic() - at < max_age:
+                return cached
+        try:
+            r = self._http.get(SERPAPI_ACCOUNT_URL, params={"api_key": self._key})
+            data = r.json() if r.status_code == 200 else None
+        except (httpx.HTTPError, ValueError):
+            data = None
+        if not isinstance(data, dict):
+            return cached
+        left = data.get("total_searches_left", data.get("plan_searches_left"))
+        info = {"searches_left": int(left) if isinstance(left, (int, float)) else None,
+                "searches_per_month": data.get("searches_per_month"),
+                "used_this_month": data.get("this_month_usage"),
+                "plan": data.get("plan_name")}
+        with self._lock:
+            self._quota = (time.monotonic(), info)
+        return info
 
     # ---------------------------------------------------------------- search
     def search_products(self, query: str | None, category: str | None, budget: str | None = None,

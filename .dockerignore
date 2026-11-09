@@ -1,0 +1,17 @@
+.git
+.github
+.env
+.env.*
+!.env.example
+**/.venv
+**/__pycache__
+**/*.db
+**/*.db-*
+**/.keys
+**/node_modules
+**/.next
+**/test-results
+**/playwright-report
+backend/tests
+docs
+*.log

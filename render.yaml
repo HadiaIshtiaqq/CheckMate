@@ -1,0 +1,31 @@
+# Render Blueprint: one free web service running the whole app.
+# Deploy: https://render.com/deploy?repo=https://github.com/HadiaIshtiaqq/CheckMate
+services:
+  - type: web
+    name: checkmate
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /login
+    autoDeploy: true
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: SIGNING_KEY
+        generateValue: true
+      # Your keys: Render asks for these when you create the service. They never go in the repo.
+      - key: SERPAPI_KEY
+        sync: false
+      - key: GEMINI_API_KEYS
+        sync: false
+      # Protect the shared search quota on a public demo.
+      - key: MAX_SEARCH_DEPTH
+        value: quick
+      - key: SERPAPI_DAILY_LIMIT
+        value: "25"
+      - key: SERPAPI_RESERVE
+        value: "20"
+      - key: REQUESTS_PER_USER_PER_DAY
+        value: "5"
+      - key: RATE_LIMIT_PER_MINUTE
+        value: "300"

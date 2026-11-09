@@ -149,7 +149,22 @@ npm install
 npm run build && npm start      # http://localhost:3000
 ```
 
-Open http://localhost:3000, **create an account**, and describe what you want to buy. A `docker-compose.yml` (with an optional Caddy HTTPS profile) is included for deployment.
+Open http://localhost:3000, **create an account**, and describe what you want to buy. A `docker-compose.yml` (with an optional Caddy HTTPS profile) is included for self-hosting.
+
+### Deploy free on Render
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/HadiaIshtiaqq/CheckMate)
+
+The root `Dockerfile` runs the whole app as one service, and [`render.yaml`](render.yaml) configures it. Render asks for `SERPAPI_KEY` and `GEMINI_API_KEYS` when you create it, so keys never go in the repo. A public demo protects the search quota:
+
+| Setting | Demo value | Effect |
+|---|---|---|
+| `MAX_SEARCH_DEPTH` | `quick` | 1 search per request |
+| `SERPAPI_DAILY_LIMIT` | `25` | New searches stop for the day after 25 (cached results still work) |
+| `SERPAPI_RESERVE` | `20` | Live search pauses when the monthly quota falls to 20 |
+| `REQUESTS_PER_USER_PER_DAY` | `5` | Per-account daily limit |
+
+The free plan sleeps after 15 minutes idle (the first visit then takes about a minute), and its storage resets on restart, so demo accounts are temporary.
 
 | Setting | What it does | Where to get it |
 |---|---|---|

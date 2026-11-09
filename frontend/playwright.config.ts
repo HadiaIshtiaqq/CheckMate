@@ -16,7 +16,8 @@ export default defineConfig({
   reporter: [["list"]],
   use: {
     baseURL: `http://localhost:${WEB_PORT}`,
-    channel: process.env.PW_CHANNEL ?? "msedge",
+    // Edge locally on Windows; the bundled Chromium in CI (or set PW_CHANNEL).
+    channel: process.env.PW_CHANNEL || (process.env.CI ? undefined : "msedge"),
     headless: true,
     trace: "retain-on-failure",
   },

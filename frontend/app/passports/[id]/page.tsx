@@ -72,7 +72,7 @@ export default function PassportPage({ params }: { params: { id: string } }) {
           </div>
           <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.2em] text-brand-600 dark:text-brand-400"><Sparkles size={14} /> Purchase Truth Passport</div>
           <h1 className="mt-2 max-w-2xl text-2xl font-extrabold tracking-tight sm:text-3xl">{b.selected_product.product_name}</h1>
-          <p className="mt-1 text-sm text-slate-500">{b.selected_product.variant} · issued {new Date(b.generated_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</p>
+          <p className="mt-1 text-sm text-slate-500">{b.selected_product.variant ? `${b.selected_product.variant} · ` : ""}issued {new Date(b.generated_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</p>
 
           <div className={`mt-5 inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-bold ${ok ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/20 dark:bg-emerald-950 dark:text-emerald-300" : "bg-amber-50 text-amber-800 ring-1 ring-amber-600/20 dark:bg-amber-950 dark:text-amber-300"}`}>
             {ok ? <Check size={16} strokeWidth={3} /> : <Alert size={16} />}
@@ -89,7 +89,7 @@ export default function PassportPage({ params }: { params: { id: string } }) {
             <Fact icon={<Store size={13} />} label="Seller" value={c.terms.seller_name} sub={(b.seller_evidence?.evidence_level ?? "").replace("_EVIDENCE", " evidence").toLowerCase()} />
             <Fact icon={<ShieldCheck size={13} />} label={store ? "Checklist" : "Checkout check"}
                   value={({ CONFIRMED_BY_YOU: "Confirmed by you", NOT_MET: "Not met", INCOMPLETE: "Incomplete" } as Record<string, string>)[b.checkout_verification.result] ?? b.checkout_verification.result}
-                  sub={`${b.checkout_verification.conditions.length} ${store ? "items" : "conditions"}`} />
+                  sub={(() => { const n = b.checkout_verification.conditions.length; return `${n} ${store ? (n === 1 ? "item" : "items") : (n === 1 ? "condition" : "conditions")}`; })()} />
           </div>
 
           {check && (

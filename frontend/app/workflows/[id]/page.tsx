@@ -135,7 +135,8 @@ export default function WorkflowPage({ params }: { params: { id: string } }) {
     const p = await post<Payment>("/api/v1/payments/orders", { contract_id: contract!.id });
     if (p.approve_url && ["APPROVAL_PENDING", "APPROVED"].includes(p.payment_status)) window.location.href = p.approve_url;
   });
-  const approve = () => act(() => post(`/api/v1/contracts/${contract!.id}/approve`, { contract_hash: contract!.contract_hash }), "Contract approved. Next: verify the checkout.");
+  const approve = () => act(() => post(`/api/v1/contracts/${contract!.id}/approve`, { contract_hash: contract!.contract_hash }), external ? `Plan approved. Next: buy it at ${contract!.terms.store_name ?? "the store"}, then report what you paid.`
+                                     : "Contract approved. Next: verify the checkout.");
   const revise = (s: Suggestion) => act(async () => {
     const r = await post<{ workflow_id: string }>(`/api/v1/workflows/${id}/revise`, {
       max_budget: s.max_budget, drop_specs: s.drop_specs ?? [], clear_variant: !!s.clear_variant,

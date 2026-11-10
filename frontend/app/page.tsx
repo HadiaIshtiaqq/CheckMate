@@ -34,7 +34,7 @@ export default function Dashboard() {
   const [text, setText] = useState(EXAMPLES[0].text);
   const [mode, setMode] = useState("ASSISTED");
   const [market, setMarket] = useState("us");
-  const [depth, setDepth] = useState<"quick" | "standard" | "wide">("standard");
+  const [stores, setStores] = useState<string[]>(["google_shopping", "amazon"]);
   const [source, setSource] = useState<"stores" | "partner">("stores");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,8 +52,6 @@ export default function Dashboard() {
     api<SystemInfo>("/api/v1/system").then((info) => {
       setSys(info);
       if (!info.real_stores_connected && info.demo_store_enabled) setSource("partner");
-      const allowed = info.search_options.allowed_depths;
-      if (allowed?.length) setDepth((d) => (allowed.includes(d) ? d : allowed[allowed.length - 1]));
     }).catch(() => setSys(null));
     const load = () => api<WorkflowSummary[]>("/api/v1/workflows").then(setRows).catch(() => setRows([]));
     load();
@@ -61,11 +59,27 @@ export default function Dashboard() {
     return () => clearInterval(t);
   }, []);
 
+  const marketStores = sys?.search_options.markets.find((m) => m.code === market)?.stores ?? [];
+  const picked = marketStores.filter((s) => stores.includes(s.code));
+  const toggleStore = (code: string) =>
+    setStores((cur) => (cur.includes(code) ? cur.filter((c) => c !== code) : [...cur, code]));
+  const pickMarket = (code: string) => {
+    setMarket(code);
+    const avail = sys?.search_options.markets.find((m) => m.code === code)?.stores.map((s) => s.code) ?? [];
+    setStores((cur) => { const keep = cur.filter((c) => avail.includes(c)); return keep.length ? keep : ["google_shopping"]; });
+  };
+  const usingStores = !!sys?.real_stores_connected && !(sys.demo_store_enabled && source === "partner");
+
   const submit = async () => {
+    if (usingStores && marketStores.length && !picked.length) {
+      setError("Pick at least one store to search.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      const r = await post<{ workflow_id: string }>("/api/v1/shopping/intents", { text, autonomy_mode: mode, market, search_depth: depth,
+      const r = await post<{ workflow_id: string }>("/api/v1/shopping/intents", { text, autonomy_mode: mode, market, search_depth: "quick",
+        stores: usingStores && marketStores.length ? picked.map((s) => s.code) : undefined,
         source: sys?.real_stores_connected && sys?.demo_store_enabled ? source : undefined });
       router.push(`/workflows/${r.workflow_id}`);
     } catch (e) {
@@ -125,30 +139,29 @@ export default function Dashboard() {
                         value={text} onChange={(e) => setText(e.target.value)} maxLength={2000}
                         placeholder="e.g. Find wireless headphones under $110 with free returns and no subscription"
                         onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit(); }} />
-              {sys?.real_stores_connected && !(sys.demo_store_enabled && source === "partner") && (
+              {usingStores && sys && (
                 <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 px-1 py-3 text-xs dark:border-slate-800">
                   <label className="flex items-center gap-2 font-semibold text-slate-600 dark:text-slate-300">
                     <Store size={14} /> Stores in
-                    <select className="input w-auto py-1.5 text-xs" value={market} onChange={(e) => setMarket(e.target.value)} aria-label="Country">
+                    <select className="input w-auto py-1.5 text-xs" value={market} onChange={(e) => pickMarket(e.target.value)} aria-label="Country">
                       {sys.search_options.markets.map((m) => <option key={m.code} value={m.code}>{m.name} ({m.currency})</option>)}
                     </select>
                   </label>
-                  <div className="flex rounded-xl bg-slate-100 p-1 font-semibold dark:bg-slate-800" role="radiogroup" aria-label="Search depth">
-                    {(sys.search_options.allowed_depths ?? (["quick", "standard", "wide"] as const)).map((d) => {
-                      const n = sys.search_options.depths[d]?.[market] ?? 1;
-                      const label = { quick: "Quick", standard: "Standard", wide: "Wide" }[d];
+                  <div className="flex flex-wrap gap-1.5" role="group" aria-label="Stores to search">
+                    {marketStores.map((st) => {
+                      const on = stores.includes(st.code);
                       return (
-                        <button key={d} role="radio" aria-checked={depth === d} onClick={() => setDepth(d)}
-                                title={`${label}: ${n} SerpAPI search${n === 1 ? "" : "es"}`}
-                                className={`rounded-lg px-3 py-1.5 transition ${depth === d ? "bg-white text-brand-700 shadow-sm dark:bg-slate-700 dark:text-white" : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"}`}>
-                          {label} <span className="font-normal opacity-70">· {n}</span>
+                        <button key={st.code} type="button" role="checkbox" aria-checked={on} onClick={() => toggleStore(st.code)}
+                                className={`rounded-lg px-2.5 py-1.5 font-semibold ring-1 ring-inset transition ${on
+                                  ? "bg-brand-50 text-brand-700 ring-brand-400 dark:bg-brand-950/40 dark:text-brand-300"
+                                  : "bg-white text-slate-500 ring-slate-200 hover:text-slate-800 dark:bg-slate-900 dark:ring-slate-700"}`}>
+                          {on ? "✓ " : ""}{st.label}
                         </button>
                       );
                     })}
                   </div>
                   <span className="text-slate-500">
-                    Searches {{ quick: ["Google Shopping"], standard: (sys.search_options.markets.find((m) => m.code === market)?.sources ?? []).filter((x) => x !== "Walmart"), wide: sys.search_options.markets.find((m) => m.code === market)?.sources ?? [] }[depth].filter((v, i, a) => a.indexOf(v) === i).join(", ")}
-                    {depth === "wide" && " + a second phrasing"}
+                    {picked.length ? `${picked.length} live search${picked.length === 1 ? "" : "es"}` : "Pick at least one store"}
                   </span>
                 </div>
               )}

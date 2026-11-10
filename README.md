@@ -32,7 +32,7 @@
 4. **Approve the plan**: the approval is signed and bound to that exact version.
 5. Optional: open the listing, then **Report my purchase** to get a reconciled, signed **Purchase Truth Passport**. You don't have to buy anything; you can report a test amount to see how a mismatch is flagged.
 
-> The demo runs on a free plan: the first visit after a quiet spell can take about a minute to wake up. To protect the shared search quota, the live demo uses Quick searches (Google Shopping) and a small daily limit per account. Demo accounts are reset when the service restarts.
+> The demo runs on a free plan: the first visit after a quiet spell can take about a minute to wake up. To protect the shared search quota, each store you tick (Google Shopping, Amazon, eBay, Walmart) costs one search, and there's a small daily limit per account. Demo accounts are reset when the service restarts.
 
 ---
 
@@ -72,7 +72,7 @@ Ten agents do the work: understanding the request, searching real stores, assess
 
 | Ask in plain English | Every real offer, checked against your rules |
 |---|---|
-| <img src="docs/screenshots/dashboard.png" alt="Dashboard with country, search depth and searches-left meter" /> | <img src="docs/screenshots/real-offers.png" alt="Real offers from Lowe's, Best Buy and Macy's with rule results" /> |
+| <img src="docs/screenshots/dashboard.png" alt="Dashboard with country, store picker and searches-left meter" /> | <img src="docs/screenshots/real-offers.png" alt="Real offers from Lowe's, Best Buy and Macy's with rule results" /> |
 | **Manipulated checkout blocked before payment** | **Signed, verifiable Purchase Truth Passport** |
 | <img src="docs/screenshots/blocked.png" alt="Payment blocked: subscription sneaked in and total over the limit" /> | <img src="docs/screenshots/passport.png" alt="Passport with reconciliation, signature and audit-chain verified" /> |
 
@@ -175,7 +175,7 @@ The root `Dockerfile` runs the whole app as one service, and [`render.yaml`](ren
 
 | Setting | Demo value | Effect |
 |---|---|---|
-| `MAX_SEARCH_DEPTH` | `quick` | 1 search per request |
+| `MAX_SEARCH_DEPTH` | `quick` | No extra re-phrased search; one search per store ticked |
 | `SERPAPI_DAILY_LIMIT` | `25` | New searches stop for the day after 25 (cached results still work) |
 | `SERPAPI_RESERVE` | `20` | Live search pauses when the monthly quota falls to 20 |
 | `REQUESTS_PER_USER_PER_DAY` | `5` | Per-account daily limit |
@@ -189,7 +189,7 @@ The free plan sleeps after 15 minutes idle (the first visit then takes about a m
 | `DEMO_CATALOG_ENABLED` | `true` turns on the fictional demo store for the full checkout and PayPal flow | — |
 | `PAYPAL_CLIENT_ID` / `_SECRET` | Real PayPal Sandbox instead of the built-in simulator | developer.paypal.com |
 
-Search depth is your choice per request: **Quick** (1 search), **Standard** (Google + Amazon + eBay, 3 searches) or **Wide** (+ Walmart and an alternate phrasing, up to 5 searches). The header shows how many SerpAPI searches you have left this month (the lookup itself is free).
+You pick which stores to search on each request: **Google Shopping**, **Amazon**, **eBay** and **Walmart** (where the country has them). Each ticked store is one SerpAPI search, and the results are merged into one comparison. The header shows how many SerpAPI searches you have left this month (the lookup itself is free).
 
 ---
 

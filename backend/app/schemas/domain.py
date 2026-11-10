@@ -68,6 +68,7 @@ class ShoppingIntent(BaseModel):
     market: str | None = None           # which country's stores to search (us, uk, ca, au, de, fr, in)
     search_depth: str = "standard"      # quick | standard | wide
     source: str | None = None           # stores (real, via SerpAPI) | partner (PayPal partner merchant) | None
+    stores: list[str] | None = None     # engines the shopper picked: google_shopping, amazon, ebay, walmart
 
     @property
     def needs_clarification(self) -> bool:

@@ -34,6 +34,7 @@ class IntentIn(BaseModel):
     market: str | None = Field(default=None, max_length=4)
     search_depth: str = "standard"
     source: str | None = Field(default=None, max_length=12)
+    stores: list[str] | None = Field(default=None, max_length=8)
 
 
 class PurchaseReportIn(BaseModel):
@@ -106,7 +107,8 @@ def search_quota(user: User = Depends(current_user)):
 def submit_intent(body: IntentIn, bg: BackgroundTasks, user: User = Depends(serialized_user),
                   db: Session = Depends(get_db)):
     wf = svc.create_workflow(db, user.id, body.text.strip(), body.autonomy_mode, market=body.market,
-                             search_depth=body.search_depth, source=body.source)
+                             search_depth=body.search_depth, source=body.source,
+                             stores=body.stores)
     bg.add_task(svc.run_pipeline, wf.id)
     return {"workflow_id": wf.id, "state": wf.state}
 

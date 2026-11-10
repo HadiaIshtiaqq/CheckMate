@@ -173,8 +173,9 @@ def _ttl() -> timedelta:
 
 # =============================================================== pipeline ====
 def create_workflow(db: Session, user_id: str, text: str, autonomy_mode: str, market: str | None = None,
-                    search_depth: str = "standard", source: str | None = None) -> Workflow:
-    from app.integrations.merchants.serpapi_shopping import DEPTHS, MARKETS
+                    search_depth: str = "standard", source: str | None = None,
+                    stores: list[str] | None = None) -> Workflow:
+    from app.integrations.merchants.serpapi_shopping import DEPTHS, ENGINES, ENGINE_LABELS, MARKETS, market_engines
 
     if autonomy_mode not in AUTONOMY_MODES:
         raise ServiceError(f"autonomy_mode must be one of {AUTONOMY_MODES}")
@@ -184,6 +185,16 @@ def create_workflow(db: Session, user_id: str, text: str, autonomy_mode: str, ma
         raise ServiceError(f"search_depth must be one of {', '.join(DEPTHS)}")
     if source not in (None, "stores", "partner"):
         raise ServiceError("source must be 'stores' or 'partner'")
+    if stores is not None:
+        unknown = [x for x in stores if x not in ENGINES]
+        if unknown:
+            raise ServiceError(f"stores must be chosen from {', '.join(ENGINES)}")
+        stores = [e for e in ENGINES if e in stores]
+        if not stores:
+            raise ServiceError("Pick at least one store to search.")
+        if market in MARKETS and not set(stores) & set(market_engines(market)):
+            raise ServiceError(f"None of those stores can be searched in {MARKETS[market]['name']}; "
+                               f"available: {', '.join(ENGINE_LABELS[e] for e in market_engines(market))}.")
     c = get_container()
     if source == "partner" and c.merchant is None:
         raise ServiceError("The PayPal partner merchant isn't enabled on this server.")
@@ -202,7 +213,8 @@ def create_workflow(db: Session, user_id: str, text: str, autonomy_mode: str, ma
             raise RateLimited(f"You've reached this demo's limit of {s.requests_per_user_per_day} shopping "
                               "requests per day. Please try again tomorrow.")
     wf = Workflow(id=new_id("wf"), user_id=user_id, state=WS.CREATED.value, autonomy_mode=autonomy_mode,
-                  raw_request=text, market=market, search_depth=search_depth, source=source)
+                  raw_request=text, market=market, search_depth=search_depth, source=source,
+                  stores=",".join(stores) if stores else None)
     db.add(wf)
     db.commit()
     emit(db, wf, "intent.created", "Shopping request received", payload={"autonomy_mode": autonomy_mode})
@@ -267,6 +279,7 @@ def apply_market(intent: ShoppingIntent, wf: Workflow) -> None:
 
     intent.search_depth = wf.search_depth or "standard"
     intent.source = wf.source
+    intent.stores = wf.stores.split(",") if wf.stores else None
     if wf.market in MARKETS:
         intent.market = wf.market
         cur = MARKETS[wf.market]["currency"]

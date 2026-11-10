@@ -30,6 +30,7 @@ class Workflow(Base):
     market: Mapped[str | None] = mapped_column(String(4), nullable=True)
     search_depth: Mapped[str | None] = mapped_column(String(10), nullable=True)
     source: Mapped[str | None] = mapped_column(String(12), nullable=True)  # stores | partner | None (all)
+    stores: Mapped[str | None] = mapped_column(String(80), nullable=True)  # comma-separated engine codes
     raw_request: Mapped[str] = mapped_column(Text)
     intent: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     evaluations: Mapped[list | None] = mapped_column(JSON, nullable=True)

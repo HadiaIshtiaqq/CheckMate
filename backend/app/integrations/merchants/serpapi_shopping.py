@@ -132,9 +132,29 @@ def market_for(market: str | None, currency: str | None) -> str:
     return MARKET_BY_CURRENCY.get((currency or "USD").upper(), "us")
 
 
-def search_plan(market: str, depth: str, query: str, alt_query: str | None = None) -> list[tuple[str, str]]:
-    """(engine, query) pairs for one request. Each pair is one SerpAPI search."""
+ENGINES = tuple(ENGINE_LABELS)
+
+
+def market_engines(market: str) -> list[str]:
+    """The stores SerpAPI can search in this country."""
     m = MARKETS[market]
+    return [e for e in ENGINES if e == "google_shopping" or m.get(e)]
+
+
+def search_plan(market: str, depth: str, query: str, alt_query: str | None = None,
+                stores: list[str] | None = None) -> list[tuple[str, str]]:
+    """(engine, query) pairs for one request. Each pair is one SerpAPI search.
+    `stores` (engine codes the shopper picked) overrides the depth's default store set;
+    stores not available in the country are skipped."""
+    m = MARKETS[market]
+    if stores:
+        available = market_engines(market)
+        picked = [e for e in ENGINES if e in stores and e in available] or ["google_shopping"]
+        plan = [(e, query) for e in picked]
+        if (depth == "wide" and "google_shopping" in picked and alt_query
+                and alt_query.strip().lower() != query.strip().lower()):
+            plan.append(("google_shopping", alt_query))
+        return plan
     plan = [("google_shopping", query)]
     if depth in ("standard", "wide"):
         if m.get("amazon"):
@@ -155,7 +175,8 @@ def search_options() -> dict:
     cap = get_settings().max_search_depth
     allowed = list(DEPTHS)[: list(DEPTHS).index(cap) + 1] if cap in DEPTHS else list(DEPTHS)
     return {"allowed_depths": allowed,"markets": [{"code": k, "name": v["name"], "currency": v["currency"],
-                         "sources": [ENGINE_LABELS[e] for e, _ in search_plan(k, "wide", "q")]}
+                         "sources": [ENGINE_LABELS[e] for e, _ in search_plan(k, "wide", "q")],
+                         "stores": [{"code": e, "label": ENGINE_LABELS[e]} for e in market_engines(k)]}
                         for k, v in MARKETS.items()],
             "depths": {d: {k: len({e for e, _ in search_plan(k, d, "a", "b")}) +
                            (1 if d == "wide" else 0) for k in MARKETS} for d in DEPTHS}}
@@ -248,13 +269,13 @@ class SerpApiShoppingAdapter(MerchantAdapter):
     def search_products(self, query: str | None, category: str | None, budget: str | None = None,
                         currency: str | None = None, specs: dict[str, str] | None = None,
                         color: str | None = None, market: str | None = None, depth: str = "quick",
-                        alt_query: str | None = None) -> list[dict]:
+                        alt_query: str | None = None, stores: list[str] | None = None) -> list[dict]:
         q = " ".join(x for x in [(query or "").strip(), (color or "").lower()] if x).strip()
         if not q:
             return []
         mk = market_for(market, currency)
         alt = " ".join(x for x in [(alt_query or "").strip(), (color or "").lower()] if x).strip() or None
-        plan = search_plan(mk, depth if depth in DEPTHS else "standard", q, alt)
+        plan = search_plan(mk, depth if depth in DEPTHS else "standard", q, alt, stores)
         merged: dict[str, dict] = {}
         errors: list[str] = []
         for engine, eq in plan:

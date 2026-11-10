@@ -227,3 +227,25 @@ def test_depth_cap_and_per_user_daily_limit(client, monkeypatch):
         assert wf.search_depth == "quick"
         with pytest.raises(svc.RateLimited):
             svc.create_workflow(db, uid, "a toaster under $40", "ASSISTED")
+
+
+def test_shopper_picks_which_stores_to_search(client, stores):
+    adapter, rec = stores
+    wf = start_with(client, KB, search_depth="quick", market="us", stores=["amazon", "walmart"])
+    assert sorted(c["engine"] for c in rec.calls) == ["amazon", "walmart"]  # no Google Shopping, one search each
+    assert {e["candidate"]["engine"] for e in wf["evaluations"]} == {"amazon", "walmart"}
+
+
+def test_store_choice_skips_stores_missing_in_the_country():
+    assert [e for e, _ in search_plan("uk", "quick", "q", stores=["walmart", "ebay"])] == ["ebay"]
+    assert [e for e, _ in search_plan("in", "quick", "q", stores=["walmart"])] == ["google_shopping"]
+    assert [e for e, _ in search_plan("us", "wide", "q", "q2", stores=["google_shopping"])] == [
+        "google_shopping", "google_shopping"]
+
+
+def test_store_choice_validation(client, stores):
+    bad = lambda **o: client.post("/api/v1/shopping/intents", json={"text": KB, **o}, headers=A)
+    assert bad(stores=["temu"]).status_code == 400
+    assert bad(stores=[]).status_code == 400
+    r = bad(stores=["walmart"], market="uk")
+    assert r.status_code == 400 and "Walmart" not in r.json()["detail"].split("available:")[1]

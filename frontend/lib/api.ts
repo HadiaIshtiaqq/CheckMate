@@ -178,7 +178,7 @@ export interface SystemInfo {
   demo_controls_enabled: boolean; scenarios: Record<string, string>;
   product_sources: string[]; real_stores_connected: boolean; demo_store_enabled: boolean;
   search_options: {
-    markets: { code: string; name: string; currency: string; sources: string[] }[];
+    markets: { code: string; name: string; currency: string; sources: string[]; stores: { code: string; label: string }[] }[];
     depths: Record<"quick" | "standard" | "wide", Record<string, number>>;
     allowed_depths?: ("quick" | "standard" | "wide")[];
   };

@@ -70,7 +70,9 @@ def build_order_payload(contract: ContractTerms, snap: CheckoutSnapshot, *, cont
             "reference_id": contract_id[:256],
             "custom_id": f"{contract_id}:v{version}"[:127],
             "invoice_id": invoice_id[:127],
-            "description": f"{contract.product_name} ({contract.exact_variant})"[:127],
+            "description": (f"{contract.product_name} at {contract.store_name or 'the store'} - Sandbox payment; "
+                            f"no order is placed at the store" if contract.purchase_channel == "external_store"
+                            else f"{contract.product_name} ({contract.exact_variant})")[:127],
             "amount": {"currency_code": cur, "value": money_str(grand), "breakdown": breakdown},
             "items": items,
         }],

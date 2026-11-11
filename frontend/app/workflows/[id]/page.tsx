@@ -135,7 +135,7 @@ export default function WorkflowPage({ params }: { params: { id: string } }) {
     const p = await post<Payment>("/api/v1/payments/orders", { contract_id: contract!.id });
     if (p.approve_url && ["APPROVAL_PENDING", "APPROVED"].includes(p.payment_status)) window.location.href = p.approve_url;
   });
-  const approve = () => act(() => post(`/api/v1/contracts/${contract!.id}/approve`, { contract_hash: contract!.contract_hash }), external ? `Plan approved. Next: buy it at ${contract!.terms.store_name ?? "the store"}, then report what you paid.`
+  const approve = () => act(() => post(`/api/v1/contracts/${contract!.id}/approve`, { contract_hash: contract!.contract_hash }), external ? `Plan approved. Next: check the live listing and pay with PayPal, or buy at ${contract!.terms.store_name ?? "the store"} and report what you paid.`
                                      : "Contract approved. Next: verify the checkout.");
   const revise = (s: Suggestion) => act(async () => {
     const r = await post<{ workflow_id: string }>(`/api/v1/workflows/${id}/revise`, {
@@ -186,8 +186,9 @@ export default function WorkflowPage({ params }: { params: { id: string } }) {
       <div className="grid gap-5 lg:grid-cols-3">
         <div className="space-y-5 lg:col-span-2">
           {wf.intent && <IntentSummary intent={wf.intent} />}
-          {contract && sys && !external && wf.autonomy_mode !== "MONITORING_ONLY" && (
+          {contract && sys && wf.autonomy_mode !== "MONITORING_ONLY" && (
             <VerificationCard verification={wf.verification} scenarios={sys.scenarios} canVerify={canVerify} busy={busy}
+                              store={external ? (contract.terms.store_name ?? null) : undefined}
                               onVerify={(s) => act(() => post(`/api/v1/contracts/${contract.id}/verify`, { scenario: s }))} />
           )}
           <OfferCards evaluations={wf.evaluations} selectedId={contract?.terms.product_id} busy={busy}
@@ -223,7 +224,7 @@ export default function WorkflowPage({ params }: { params: { id: string } }) {
                                }, "Receipt attached.")}
                                onReport={(r) => act(() => post(`/api/v1/contracts/${contract.id}/report-purchase`, r), "Purchase recorded and reconciled. Your passport is ready.")} />
           )}
-          {contract && !external && wf.autonomy_mode !== "MONITORING_ONLY" && (
+          {contract && wf.autonomy_mode !== "MONITORING_ONLY" && (
             <PaymentCard wf={wf} payment={payment} busy={busy} onPay={startPayPal}
                          onCapture={(pid) => act(() => post(`/api/v1/payments/${pid}/capture`), "Payment captured.")}
                          onRefund={(pid, reason) => act(() => post(`/api/v1/payments/${pid}/refund`, { reason }), "Refunded through PayPal.")} />

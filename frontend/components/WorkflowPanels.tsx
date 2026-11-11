@@ -260,11 +260,13 @@ export function NextStep({ wf, lastMessage, events, busy, actions }: { wf: Workf
             </div>
           </Banner>
         ) : (
-          <Banner tone="emerald" icon={<Store size={22} />} title={`Buy it at ${c.terms.store_name}, then tell us what you paid`}>
-            <p>CHECKMATE can't see inside a real store's checkout, so check the items below on the store's page before you pay, then report the purchase to reconcile it and get your passport.</p>
+          <Banner tone="emerald" icon={<Store size={22} />} title="Plan approved. Pay with PayPal, or buy at the store">
+            <p><b>PayPal (Sandbox):</b> CHECKMATE re-checks the live listing at {c.terms.store_name} (still listed, same price, within your limit), then you pay exactly the approved amount with PayPal. Sandbox only: no order is placed at the store.</p>
+            <p className="mt-1"><b>Or at {c.terms.store_name}:</b> check the items below on the store's page, buy there, then report what you paid to get your passport.</p>
             <div className="mt-3 flex flex-wrap gap-2">
-              {c.terms.store_url && <a className="btn-primary" href={c.terms.store_url} target="_blank" rel="noreferrer"><Store size={16} /> Open the listing</a>}
-              <a href="#store" className="btn-secondary">Report my purchase</a>
+              <a href="#verify" className="btn-paypal">Pay with <span className="italic">PayPal</span></a>
+              {c.terms.store_url && <a className="btn-secondary" href={c.terms.store_url} target="_blank" rel="noreferrer"><Store size={16} /> Open the listing</a>}
+              <a href="#store" className="btn-ghost">Report my purchase</a>
             </div>
           </Banner>
         );
@@ -332,6 +334,14 @@ export function NextStep({ wf, lastMessage, events, busy, actions }: { wf: Workf
       );
 
     case "COMPLETED":
+      if (c?.terms.purchase_channel === "external_store" && wf.payments.some((p) => p.payment_status === "CAPTURED")) {
+        return (
+          <Banner tone="emerald" icon={<Award size={22} />} title="Paid with PayPal (Sandbox) and verified">
+            <p>The live listing at {c.terms.store_name} still matched your plan, and PayPal captured exactly the approved amount. Sandbox payment: no order was placed at the store.</p>
+            {wf.passport_id && <div className="mt-3"><Link className="btn-primary" href={`/passports/${wf.passport_id}`}><Award size={16} /> View Purchase Truth Passport</Link></div>}
+          </Banner>
+        );
+      }
       if (c?.terms.purchase_channel === "external_store") {
         return wf.has_discrepancy ? (
           <Banner tone="amber" icon={<Alert size={22} />} title="Purchase recorded — but it doesn't match your plan">
@@ -710,17 +720,21 @@ const TONE_RING: Record<string, string> = {
   amber: "text-amber-600 bg-amber-50 dark:bg-amber-950", violet: "text-plum-600 bg-plum-50 dark:bg-plum-950",
 };
 
-export function VerificationCard({ verification, scenarios, canVerify, busy, onVerify }: {
+export function VerificationCard({ verification, scenarios, canVerify, busy, onVerify, store }: {
   verification: Verification | null; scenarios: Record<string, string>; canVerify: boolean; busy: boolean;
-  onVerify: (s: string) => void;
+  onVerify: (s: string) => void; store?: string | null;
 }) {
   const [scenario, setScenario] = useState("clean");
   const v = verification;
+  const real = store !== undefined;
   return (
-    <Card id="verify" title="Checkout verification" icon={<ShieldCheck size={15} />}
-          right={<span className="chip bg-amber-50 text-amber-800 ring-1 ring-inset ring-amber-600/20 dark:bg-amber-950 dark:text-amber-300">Demo merchant</span>}>
-      <p className="mb-3 text-sm text-slate-500">Pick how the demo merchant behaves at checkout, then let the Verification Agent compare it with your contract.</p>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" role="radiogroup" aria-label="Checkout scenario">
+    <Card id="verify" title={real ? "Pay with PayPal: live listing check" : "Checkout verification"} icon={<ShieldCheck size={15} />}
+          right={real ? <span className="chip bg-sky-50 text-sky-800 ring-1 ring-inset ring-sky-600/20 dark:bg-sky-950 dark:text-sky-300">Real store · {store ?? "store"}</span>
+                      : <span className="chip bg-amber-50 text-amber-800 ring-1 ring-inset ring-amber-600/20 dark:bg-amber-950 dark:text-amber-300">Demo merchant</span>}>
+      <p className="mb-3 text-sm text-slate-500">{real
+        ? `Before PayPal is asked for anything, CHECKMATE confirms the live listing at ${store ?? "the store"} still matches your approved plan: still listed, same price and currency, within your limit. Anything changed or unknown blocks the payment. Sandbox payment: no order is placed at the store.`
+        : "Pick how the demo merchant behaves at checkout, then let the Verification Agent compare it with your contract."}</p>
+      {!real && <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" role="radiogroup" aria-label="Checkout scenario">
         {Object.entries(scenarios).map(([k, desc]) => {
           const ui = SCENARIO_UI[k] ?? { title: k, tone: "amber", icon: <Zap size={15} /> };
           const on = scenario === k;
@@ -733,12 +747,12 @@ export function VerificationCard({ verification, scenarios, canVerify, busy, onV
             </button>
           );
         })}
-      </div>
+      </div>}
       <div className="mt-3 flex flex-wrap items-center gap-3">
-        <button className="btn-primary" disabled={!canVerify || busy} onClick={() => onVerify(scenario)}>
-          {busy ? <Loader size={16} /> : <ShieldCheck size={16} />} Verify final checkout
+        <button className="btn-primary" disabled={!canVerify || busy} onClick={() => onVerify(real ? "clean" : scenario)}>
+          {busy ? <Loader size={16} /> : <ShieldCheck size={16} />} {real ? "Check live listing" : "Verify final checkout"}
         </button>
-        {!canVerify && <span className="text-xs text-slate-500">{v ? "Verification isn't available in the current step." : "Approve the contract first."}</span>}
+        {!canVerify && <span className="text-xs text-slate-500">{v ? "Verification isn't available in the current step." : real ? "Approve the plan first." : "Approve the contract first."}</span>}
       </div>
 
       {v && (
@@ -749,14 +763,14 @@ export function VerificationCard({ verification, scenarios, canVerify, busy, onV
             </span>
             <div>
               <div className="font-extrabold">{v.status === "PASS" ? "PASS — payment eligible" : `${v.status} — payment blocked`}</div>
-              <div className="text-xs opacity-80">Scenario: {SCENARIO_UI[v.scenario ?? ""]?.title ?? v.scenario} · against contract v{v.contract_version}</div>
+              <div className="text-xs opacity-80">{real ? "Live listing check" : `Scenario: ${SCENARIO_UI[v.scenario ?? ""]?.title ?? v.scenario}`} · against {real ? "plan" : "contract"} v{v.contract_version}</div>
             </div>
           </div>
 
           <div className="overflow-x-auto rounded-xl ring-1 ring-slate-200 dark:ring-slate-800">
             <table className="w-full min-w-[520px] text-left text-sm">
               <thead className="bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500 dark:bg-slate-800/50">
-                <tr><th className="px-3 py-2">Condition</th><th className="px-3 py-2">Approved</th><th className="px-3 py-2">Checkout</th><th className="px-3 py-2 text-right">Result</th></tr>
+                <tr><th className="px-3 py-2">Condition</th><th className="px-3 py-2">Approved</th><th className="px-3 py-2">{real ? "Now" : "Checkout"}</th><th className="px-3 py-2 text-right">Result</th></tr>
               </thead>
               <tbody>
                 {v.conditions.map((c) => (
@@ -773,7 +787,7 @@ export function VerificationCard({ verification, scenarios, canVerify, busy, onV
 
           {v.checkout_snapshot && (
             <div className="rounded-xl border border-dashed border-slate-300 p-4 text-sm dark:border-slate-700">
-              <div className="mb-2 flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-slate-500"><Receipt size={13} /> Merchant checkout</div>
+              <div className="mb-2 flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-slate-500"><Receipt size={13} /> {real ? "PayPal order" : "Merchant checkout"}</div>
               {v.checkout_snapshot.line_items.map((l, i) => (
                 <div key={i} className={`flex justify-between gap-3 py-0.5 ${l.recurring || l.amount === null ? "font-semibold text-rose-600" : ""}`}>
                   <span>{l.label}{l.recurring && ` (recurring / ${l.interval})`}</span>
@@ -816,9 +830,12 @@ export function PaymentCard({ wf, payment, busy, onPay, onCapture, onRefund }: {
           <div className="text-[11px] uppercase tracking-wider text-brand-700">Verified order total</div>
           <div className="text-3xl font-extrabold tabular-nums">{money(payment?.captured_amount ?? v.checkout_snapshot.stated_total, payment?.captured_currency ?? v.checkout_snapshot.currency)}</div>
           <div className="mt-1 truncate text-xs text-brand-800/80">{wf.contract?.terms.product_name} · {wf.contract?.terms.seller_name}</div>
+          {wf.contract?.terms.purchase_channel === "external_store" && (
+            <div className="mt-2 text-[11px] text-brand-800/80">PayPal Sandbox payment for your approved plan. No order is placed at {wf.contract.terms.store_name ?? "the store"}.</div>
+          )}
         </div>
       ) : (
-        <p className="mb-3 flex items-start gap-2 text-sm text-slate-500"><Lock size={15} className="mt-0.5 shrink-0" />Payment unlocks only after the checkout verification passes.</p>
+        <p className="mb-3 flex items-start gap-2 text-sm text-slate-500"><Lock size={15} className="mt-0.5 shrink-0" />{wf.contract?.terms.purchase_channel === "external_store" ? "Payment unlocks only after the live listing check passes." : "Payment unlocks only after the checkout verification passes."}</p>
       )}
 
       {payment && (

@@ -8,7 +8,7 @@ from app.integrations.merchants.router import CatalogRouter
 from app.integrations.merchants.serpapi_shopping import SerpApiShoppingAdapter, parse_shipping, specs_from_text
 from app.services.container import get_container
 
-from tests.conftest import A, approve, create_order, start, verify
+from tests.conftest import A, approve, create_order, get_wf, start, verify
 
 HEADPHONES_RESULTS = {"shopping_results": [
     {"position": 1, "title": "Sony WH-CH720N Wireless Noise Canceling Headphones, Black", "product_id": "111",
@@ -110,10 +110,49 @@ def test_real_offers_produce_a_store_purchase_plan(client, real_stores):
     assert all(e["candidate"]["external"] and not e["candidate"]["demo"] for e in wf["evaluations"])
 
 
-def test_real_offers_cannot_use_demo_checkout_or_paypal(client, real_stores):
+def test_real_store_offer_paid_with_paypal_after_live_listing_check(client, real_stores, paypal):
+    wf = start(client, HEADPHONES)
+    cid = wf["contract"]["id"]
+    assert create_order(client, cid).status_code in (403, 409)        # nothing before approval + check
+    assert verify(client, cid).status_code == 409                     # plan not approved yet
+    approve(client, wf)
+    searches = real_stores.searches_made
+    r = verify(client, cid)
+    assert r.status_code == 200 and r.json()["status"] == "PASS", r.text
+    assert real_stores.searches_made == searches                      # price seen minutes ago: no extra search
+    assert {c["key"] for c in r.json()["conditions"]} == {"listing", "price", "currency", "max_total"}
+    order = create_order(client, cid).json()
+    assert order["payment_status"] == "APPROVAL_PENDING" and order["amount"] == "89.99"
+    po = paypal.get_order(order["paypal_order_id"])
+    assert "no order is placed at the store" in po["purchase_units"][0]["description"]
+    paypal.buyer_decision(order["paypal_order_id"], True)
+    pay = client.post(f"/api/v1/payments/{order['id']}/capture", headers=A).json()
+    assert pay["payment_status"] == "CAPTURED" and pay["captured_amount"] == "89.99"
+    done = get_wf(client, wf["id"])
+    assert done["state"] == "COMPLETED" and done["passport_id"]
+    assert client.get(f"/api/v1/passports/{done['passport_id']}/verify", headers=A).json()["valid"]
+
+
+def test_changed_store_price_blocks_paypal(client, real_stores, monkeypatch):
     wf = start(client, HEADPHONES)
     approve(client, wf)
-    assert verify(client, wf["contract"]["id"]).status_code == 409
+    cid = wf["contract"]["id"]
+    stored = real_stores.get_product_details(wf["contract"]["terms"]["product_id"])
+    monkeypatch.setattr(real_stores, "get_product_details", lambda pid: {**stored, "price": "99.99"})
+    r = verify(client, cid)
+    assert r.json()["status"] == "FAIL" and any("price changed" in x for x in r.json()["reasons"])
+    assert create_order(client, cid).status_code == 403
+    assert get_wf(client, wf["id"])["state"] == "CHECKOUT_BLOCKED"
+
+
+def test_stale_store_price_is_refetched_and_missing_listing_blocks(client, real_stores, monkeypatch):
+    wf = start(client, HEADPHONES)
+    approve(client, wf)
+    stored = real_stores.get_product_details(wf["contract"]["terms"]["product_id"])
+    monkeypatch.setattr(real_stores, "get_product_details", lambda pid: {**stored, "retrieved_at": "2020-01-01T00:00:00+00:00"})
+    monkeypatch.setattr(real_stores, "refresh_listing", lambda pid: None)   # sold out / delisted
+    r = verify(client, wf["contract"]["id"])
+    assert r.json()["status"] == "UNKNOWN"                              # never treated as a pass
     assert create_order(client, wf["contract"]["id"]).status_code == 403
 
 

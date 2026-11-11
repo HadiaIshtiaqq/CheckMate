@@ -6,7 +6,7 @@ import json
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeout
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from sqlalchemy import func, select, update
@@ -39,10 +39,12 @@ from app.orchestrator.events import emit, list_events, verify_chain
 from app.orchestrator.state_machine import POST_CAPTURE, TERMINAL, WS, assert_transition, can_transition
 from app.policies import engine
 from app.policies.contracts import HASH_ALGORITHM, contract_hash, material_changes
-from app.schemas.common import AgentEnvelope, ConditionResult, Tri, aggregate
+from app.integrations.merchants.serpapi_shopping import ProductSourceError
+from app.schemas.common import AgentEnvelope, Charge, ChargeKind, ChargeStatus, ConditionResult, Tri, aggregate
 from app.schemas.domain import (
     CandidateEvaluation,
     CheckoutSnapshot,
+    CheckoutTerms,
     ContractTerms,
     ReconciliationReport,
     ShoppingIntent,
@@ -514,8 +516,7 @@ def verify_checkout(db: Session, user_id: str, contract_id: str, scenario: str) 
         raise ServiceError(f"Unknown scenario. Options: {', '.join(SCENARIOS)}")
     row, wf = owned_contract(db, user_id, contract_id)
     if row.terms.get("purchase_channel") == "external_store":
-        raise Conflict("This is a real store's offer. Its checkout can't be inspected by CHECKMATE: confirm the "
-                       "checklist on the store's page, buy there, then report your purchase.")
+        return verify_store_listing(db, wf, row)
     if wf.state not in CONTRACT_STATES:
         raise Conflict(f"Checkout cannot be verified while workflow is {wf.state}")
     if wf.autonomy_mode == "MONITORING_ONLY":
@@ -568,6 +569,118 @@ def verify_checkout(db: Session, user_id: str, contract_id: str, scenario: str) 
         emit(db, wf, "payment.blocked", explanation)
         find_alternatives(db, wf, terms.product_id)
     return ver
+
+
+STORE_PRICE_FRESH_FOR = timedelta(minutes=30)
+
+
+def verify_store_listing(db: Session, wf: Workflow, row: PurchaseContract) -> CheckoutVerificationRow:
+    """PayPal checkout for a real store's offer. A real store's own checkout can't be
+    inspected, so CHECKMATE checks the live listing instead: still listed, same price and
+    currency, total within the approved maximum. Only an all-PASS result unlocks a PayPal
+    order for exactly the approved amount (Sandbox: no order is placed at the store)."""
+    if wf.state not in CONTRACT_STATES:
+        raise Conflict(f"The listing cannot be checked while workflow is {wf.state}")
+    if wf.autonomy_mode == "MONITORING_ONLY":
+        raise Conflict("This workflow is monitoring-only; purchases are disabled.")
+    if row.expires_at and _aware(row.expires_at) < utcnow():
+        raise Conflict("Contract has expired.")
+    if not active_approval(db, row):
+        raise Conflict(f"Approve the current plan version (v{row.version}) before paying with PayPal.")
+    c = get_container()
+    terms = ContractTerms.model_validate(row.terms)
+    set_state(db, wf, WS.CHECKOUT_VERIFICATION, f"Re-checking the live listing at {terms.store_name or 'the store'}")
+
+    listing, how = None, ""
+    src = getattr(c.catalog, "external", None) or c.external  # the real-store adapter
+    stored = src.get_product_details(terms.product_id) if src else None
+    seen = _parse_ts((stored or {}).get("retrieved_at"))
+    if stored and seen and utcnow() - seen <= STORE_PRICE_FRESH_FOR:
+        listing, how = stored, f"price observed {max(1, int((utcnow() - seen).total_seconds() // 60))} min ago"
+    elif src:
+        try:
+            listing = src.refresh_listing(terms.product_id)
+            how = "listing re-fetched just now"
+        except ProductSourceError as e:
+            how = str(e)
+
+    P, F, U = Tri.PASS, Tri.FAIL, Tri.UNKNOWN
+    conds: list[ConditionResult] = []
+
+    def add(key, label, approved, observed, result, reason):
+        conds.append(ConditionResult(key=key, label=label, approved=str(approved), observed=str(observed),
+                                     result=result, reason=reason))
+
+    item_total = money(terms.unit_price * terms.quantity)
+    total = money(terms.known_subtotal) if terms.known_subtotal is not None else item_total
+    if listing is None:
+        add("listing", "Listing still available", "listed", "not found", U,
+            f"The listing couldn't be confirmed ({how or 'not found in a fresh search'}); it may be sold out.")
+    else:
+        add("listing", "Listing still available", "listed", "listed", P, f"Confirmed: {how}.")
+        price = money(listing["price"])
+        add("price", "Unit price", money_str(terms.unit_price), money_str(price),
+            P if price == terms.unit_price else F,
+            "Same price as the approved plan." if price == terms.unit_price
+            else "The store's price changed after you approved the plan.")
+        cur = listing.get("currency")
+        add("currency", "Currency", terms.currency, cur, P if cur == terms.currency else F,
+            "Same currency." if cur == terms.currency else "Currency differs from the approved plan.")
+    add("max_total", "Within approved maximum", f"≤ {money_str(terms.max_total)}", money_str(total),
+        P if total <= money(terms.max_total) else F,
+        "Total is within the maximum you approved." if total <= money(terms.max_total)
+        else "Total exceeds the approved maximum.")
+    status = F if any(x.result == F for x in conds) else U if any(x.result == U for x in conds) else P
+    reasons = [x.reason for x in conds if x.result != P]
+    explanation = (f"PASS — the live listing still matches your plan. PayPal will be asked for exactly "
+                   f"{money_str(total)} {terms.currency}." if status == P else
+                   f"PAYMENT BLOCKED ({status.value}). " + " ".join(reasons))
+
+    lines = [Charge(label=f"{terms.product_name} ({terms.store_name or 'store'})", kind=ChargeKind.PRODUCT,
+                    amount=item_total, currency=terms.currency, status=ChargeStatus.CONFIRMED,
+                    sku=terms.product_id[:60])]
+    if total > item_total:
+        lines.append(Charge(label="Delivery (as listed)", kind=ChargeKind.SHIPPING, amount=money(total - item_total),
+                            currency=terms.currency, status=ChargeStatus.CONFIRMED))
+    snapshot = CheckoutSnapshot(
+        checkout_id=new_id("storechk"), merchant_id=terms.store_name or "store", product_id=terms.product_id,
+        product_name=terms.product_name, variant=terms.exact_variant, seller_id=terms.seller_id,
+        seller_name=terms.seller_name, quantity=terms.quantity, currency=terms.currency, line_items=lines,
+        stated_total=total, terms=CheckoutTerms(), captured_at=utcnow(),
+        source_label=f"Live listing at {terms.store_name or 'the store'} ({how}); sales tax is charged by the store")
+    snap_row = CheckoutSnapshotRow(id=new_id("snap"), workflow_id=wf.id, contract_id=row.id, scenario="store_listing",
+                                   merchant_checkout_id=snapshot.checkout_id, body=snapshot.model_dump(mode="json"))
+    db.add(snap_row)
+    db.flush()
+    ver = CheckoutVerificationRow(id=new_id("ver"), workflow_id=wf.id, contract_id=row.id,
+                                  contract_version=row.version, contract_hash=row.contract_hash,
+                                  snapshot_id=snap_row.id, status=status.value,
+                                  conditions=[x.model_dump(mode="json") for x in conds], reasons=reasons,
+                                  explanation=explanation)
+    db.add(ver)
+    wf.blocked_reason = None if status == P else explanation
+    db.commit()
+    emit(db, wf, "checkout.verified", f"Live listing check: {status.value}", agent_id="checkout_agent",
+         payload={"verification_id": ver.id, "status": status.value, "reasons": reasons, "how": how})
+    if status == P:
+        set_state(db, wf, WS.PAYMENT_PENDING_APPROVAL, "Live listing matches the plan; PayPal approval required")
+    else:
+        set_state(db, wf, WS.CHECKOUT_BLOCKED, "Payment blocked by policy engine", payload={"status": status.value})
+        emit(db, wf, "payment.blocked", explanation)
+    return ver
+
+
+def _parse_ts(v) -> datetime | None:
+    if not v:
+        return None
+    try:
+        return _aware(datetime.fromisoformat(str(v).replace("Z", "+00:00")))
+    except ValueError:
+        return None
+
+
+def _aware(d: datetime) -> datetime:
+    return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
 
 
 def find_alternatives(db: Session, wf: Workflow, exclude_product_id: str) -> list[dict]:
@@ -765,8 +878,6 @@ def _auth(db: Session, wf: Workflow, row: PurchaseContract, ver: CheckoutVerific
 
 def create_payment_order(db: Session, user_id: str, contract_id: str) -> PaymentTransaction:
     row, wf = owned_contract(db, user_id, contract_id)
-    if row.terms.get("purchase_channel") == "external_store":
-        raise Forbidden("Real-store purchases are paid on the store's own site, not through CHECKMATE.")
     ver = latest_verification(db, row.id)
     if ver is None:
         raise Conflict("Checkout has not been verified")

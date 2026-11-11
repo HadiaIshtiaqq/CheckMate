@@ -25,6 +25,11 @@ PUBLIC_DEMO_TOKENS = {"dev-token-alice", "dev-token-bob", "replace-with-a-long-r
 
 def _env(name: str, default: str | None = None) -> str | None:
     value = os.getenv(name)
+    if value is not None:
+        # Values pasted into a hosting dashboard often carry stray spaces, newlines or quotes.
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1].strip()
     return value if value not in (None, "") else default
 
 

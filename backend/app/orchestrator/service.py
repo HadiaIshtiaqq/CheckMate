@@ -34,7 +34,7 @@ from app.database.models import (
 )
 from app.database.session import SessionLocal
 from app.integrations.merchants.catalog import SCENARIOS
-from app.integrations.paypal.client import PayPalError, PayPalTimeout
+from app.integrations.paypal.client import PayPalError, PayPalTimeout, extract_capture
 from app.orchestrator.events import emit, list_events, verify_chain
 from app.orchestrator.state_machine import POST_CAPTURE, TERMINAL, WS, assert_transition, can_transition
 from app.policies import engine
@@ -1130,6 +1130,12 @@ def _process_webhook(db: Session, event: dict) -> str:
         order_id = ((resource.get("supplementary_data") or {}).get("related_ids") or {}).get("order_id")
     p = db.scalars(select(PaymentTransaction).where(PaymentTransaction.paypal_order_id == order_id)).first() \
         if order_id else None
+    if not p and etype == "PAYMENT.CAPTURE.REFUNDED":  # a refund resource points "up" to its capture
+        up = next((l.get("href", "") for l in resource.get("links") or [] if l.get("rel") == "up"), "")
+        capture_id = up.rstrip("/").rsplit("/", 1)[-1] if "/captures/" in up else None
+        p = db.scalars(select(PaymentTransaction).where(PaymentTransaction.paypal_capture_id == capture_id)).first() \
+            if capture_id else None
+        order_id = p.paypal_order_id if p else None
     if not p:
         return "ignored: no matching order"
     wf = db.get(Workflow, p.workflow_id)
@@ -1153,6 +1159,22 @@ def _process_webhook(db: Session, event: dict) -> str:
             apply_capture_outcome(db, wf, p, out, source="webhook")
             return f"capture recorded: {out.status}"
         return f"order not completed ({order.get('status')})"
+    if etype == "PAYMENT.CAPTURE.REFUNDED":
+        if p.refund_status == "COMPLETED":
+            return "already refunded"
+        cap = extract_capture(order) or {}
+        if cap.get("status") not in ("REFUNDED", "PARTIALLY_REFUNDED"):
+            return f"capture not refunded ({cap.get('status')})"  # never trust the webhook payload alone
+        amt = resource.get("amount") or {}
+        p.refund_id = resource.get("id") or p.refund_id
+        p.refund_status = "COMPLETED"
+        p.refunded_amount = amt.get("value") or p.captured_amount
+        p.refund_reason = p.refund_reason or "Refunded in PayPal"
+        db.commit()
+        emit(db, wf, "payment.refunded",
+             f"PayPal refund completed: {p.refunded_amount} {amt.get('currency_code') or p.captured_currency}",
+             payload={"payment_id": p.id, "refund_id": p.refund_id, "status": "COMPLETED", "source": "webhook"})
+        return "refund recorded"
     if etype in ("PAYMENT.CAPTURE.DENIED", "PAYMENT.CAPTURE.DECLINED"):
         if p.payment_status != "CAPTURED":
             apply_capture_outcome(db, wf, p, PaymentOutcome(status="FAILED", error=etype), source="webhook")

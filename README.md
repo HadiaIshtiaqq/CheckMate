@@ -32,9 +32,34 @@
 4. **Approve the plan**: the approval is signed and bound to that exact version.
 5. Optional: open the listing, then **Report my purchase** to get a reconciled, signed **Purchase Truth Passport**. You don't have to buy anything; you can report a test amount to see how a mismatch is flagged.
 
+### Pay with PayPal (Sandbox)
+
+1. On the dashboard, choose **PayPal checkout** (the partner merchant, clearly labelled as sample products) and press **Start shopping**.
+2. **Approve the plan**, then press **Verify final checkout**. CHECKMATE inspects the merchant's checkout and only then unlocks payment.
+3. Press **Pay with PayPal**. You're sent to **sandbox.paypal.com**: sign in with any PayPal Sandbox *personal* test account (fake money). CHECKMATE captures the order through **PayPal Orders v2** and issues a signed passport.
+4. Try an attack: pick **Sneaky subscription** (or any of the seven) before verifying, and watch the PayPal payment get **blocked before it can start**.
+5. If the merchant's receipt doesn't match the PayPal charge, CHECKMATE recommends a **refund** and issues it through **PayPal Payments v2**, recorded in the audit chain.
+
 > The demo runs on a free plan: the first visit after a quiet spell can take about a minute to wake up. To protect the shared search quota, each store you tick (Google Shopping, Amazon, eBay, Walmart) costs one search, and there's a small daily limit per account. Demo accounts are reset when the service restarts.
 
 ---
+
+## Built for the PayPal AI Hackathon
+
+| | How CHECKMATE uses it |
+|---|---|
+| **PayPal (Sandbox)** | **Orders v2**: create, buyer approval on sandbox.paypal.com, and capture. **Payments v2**: refunds when the receipt doesn't match the charge. **Webhooks**: signature-verified capture and refund events. Every PayPal call is idempotent (`PayPal-Request-Id`) and gated by an HMAC-signed approval: no signed plan, no PayPal order. |
+| **AI (Google Gemini)** | Understands the plain-English request, reads listings and purchase terms, and explains every decision. Gemini **proposes**; a deterministic policy engine **decides**. It can never approve, loosen a rule or authorise a PayPal payment. |
+| **Agentic commerce** | Ten specialised agents (intent, discovery, seller, terms, cost, contract, checkout verification, payment, reconciliation, audit) hand work to each other, with the human approving the one decision that matters. |
+| **Render** | The whole app (Next.js + FastAPI) runs as one free Docker web service from a `render.yaml` blueprint. |
+
+### Tools used
+
+- **Google Gemini** (`gemini-3.1-flash-lite`): request parsing, listing and terms analysis, plain-English explanations.
+- **PayPal REST APIs (Sandbox)**: Orders v2, Payments v2 refunds, webhook signature verification.
+- **SerpAPI**: real listings from Google Shopping, Amazon, eBay and Walmart.
+- **FastAPI, SQLAlchemy, Next.js 14, Tailwind CSS**; **Playwright** and **pytest** for testing; **GitHub Actions** CI; **Render** hosting.
+- **Claude Code** (Anthropic) as a pair-programming assistant during development.
 
 ## The problem
 
@@ -126,7 +151,7 @@ flowchart LR
 | **Cost auditor** | Builds the known total: price, shipping, tax, and what's still unknown. |
 | **Contract** | Ranks eligible offers and writes the hashed, versioned purchase plan with its checklist. |
 | **Checkout** | (Demo store) Compares the live checkout to the approved plan and blocks any mismatch. |
-| **Payment** | (Demo store) PayPal order, approval and capture, gated by an HMAC-signed authorisation. |
+| **Payment** | (Partner merchant) PayPal Orders v2 create, approval and capture, plus Payments v2 refunds, gated by an HMAC-signed authorisation. |
 | **Reconciliation** | Compares what was paid with what was approved and flags drift from your original intent. |
 | **Monitoring** | Re-checks active plans for price and terms changes. |
 
@@ -200,8 +225,8 @@ cd backend && .venv/Scripts/python -m pytest       # 161 tests, all offline
 cd frontend && npm run build && npm run test:e2e    # real browser (Microsoft Edge) against a real backend
 ```
 
-- **161 backend tests:** unit, integration, security and end-to-end. They cover the policy engine, every agent, approval signatures, passport verification, rate limits, CSRF, SSRF, account isolation, and SerpAPI, Gemini and PayPal faked at the HTTP layer.
-- **Browser tests:** sign up, purchase through the PayPal approval page to a verified passport, a manipulated checkout being blocked, and one user unable to see another's data.
+- **171 backend tests:** unit, integration, security and end-to-end. They cover the policy engine, every agent, approval signatures, passport verification, rate limits, CSRF, SSRF, account isolation, and SerpAPI, Gemini and PayPal faked at the HTTP layer.
+- **Browser tests:** sign up, purchase through the PayPal approval page to a verified passport, a manipulated checkout being blocked, a PayPal refund, Create account kept separate from Sign in, and one user unable to see another's data. The real PayPal Sandbox flow (order creation and the sandbox.paypal.com approval link) has also been run end to end.
 - **CI:** every push runs the backend suite, a TypeScript check, the production build and the browser tests on GitHub Actions.
 - **Screenshots** in this README are generated by `SHOTS=1 npx playwright test screenshots`.
 

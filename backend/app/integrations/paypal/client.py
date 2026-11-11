@@ -7,6 +7,7 @@ implementations share one interface:
 """
 from __future__ import annotations
 
+import copy
 import json
 import secrets
 import threading
@@ -314,7 +315,13 @@ class MockPayPalClient:
                                       details=[{"issue": "CAPTURE_FULLY_REFUNDED"}])
                 refund = {"id": "MOCKREF" + new_id("r").split("_", 1)[1][:10].upper(), "status": "COMPLETED",
                           "amount": dict(cap["amount"]), "note_to_payer": note, "create_time": utcnow().isoformat()}
-                row.body = {**row.body, "refund": refund}
+                refund["links"] = [{"rel": "up", "method": "GET",
+                                    "href": f"https://api-m.sandbox.paypal.com/v2/payments/captures/{capture_id}"}]
+                units = copy.deepcopy(row.body.get("purchase_units") or [])
+                for c in (units[0].get("payments") or {}).get("captures") or [] if units else []:
+                    if c.get("id") == capture_id:
+                        c["status"] = "REFUNDED"  # as PayPal reports a fully refunded capture
+                row.body = {**row.body, "purchase_units": units, "refund": refund}
                 db.add(MockPayPalRequest(request_id=request_id, response=refund))
                 db.commit()
                 return refund

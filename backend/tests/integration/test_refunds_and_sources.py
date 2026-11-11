@@ -37,3 +37,19 @@ def test_source_partner_only_searches_partner_merchant(client):
     assert client.post("/api/v1/shopping/intents", headers=A, json={"text": "headphones", "source": "bogus"}).status_code == 400
     # Real-store search isn't connected in tests.
     assert client.post("/api/v1/shopping/intents", headers=A, json={"text": "headphones", "source": "stores"}).status_code == 400
+
+
+def test_refund_made_in_paypal_arrives_by_webhook(client, paypal):
+    import json, uuid
+    _, pay = paid(client, paypal)
+    refund = paypal.refund_capture(pay["paypal_capture_id"], request_id="made-in-paypal-dashboard")
+    event = {"id": f"WH-{uuid.uuid4().hex}", "event_type": "PAYMENT.CAPTURE.REFUNDED", "resource": refund}
+    raw = json.dumps(event).encode()
+    r = client.post("/api/v1/webhooks/paypal", content=raw, headers={
+        "Content-Type": "application/json", "X-CheckMate-Mock-Signature": paypal.sign_webhook(raw)})
+    assert r.status_code == 200 and r.json()["result"] == "refund recorded", r.text
+    body = client.get(f"/api/v1/payments/{pay['id']}", headers=A).json()
+    assert body["refund_status"] == "COMPLETED" and body["refund_id"] == refund["id"]
+    # the same event again is a no-op; a refund event for an unknown capture is ignored
+    assert client.post("/api/v1/webhooks/paypal", content=raw, headers={
+        "Content-Type": "application/json", "X-CheckMate-Mock-Signature": paypal.sign_webhook(raw)}).json()["status"] == "duplicate"

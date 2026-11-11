@@ -15,7 +15,8 @@ async function signUp(page: Page) {
   await page.screenshot({ path: `${OUT}/login.png` });
   await page.getByRole("tab", { name: "Create account" }).click();
   await page.getByLabel("Email").fill(`shopper-${Date.now()}@example.com`);
-  await page.getByLabel("Password").fill("correct horse battery staple");
+  await page.getByLabel("Password", { exact: true }).fill("correct horse battery staple");
+  await page.getByLabel("Confirm password").fill("correct horse battery staple");
   await page.getByRole("button", { name: /Create account/ }).last().click();
   await expect(page.getByLabel("Shopping request")).toBeVisible();
 }

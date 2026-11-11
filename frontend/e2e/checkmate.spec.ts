@@ -8,7 +8,8 @@ async function signUp(page: Page) {
   await page.goto("/login");
   await page.getByRole("tab", { name: "Create account" }).click();
   await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill("correct horse battery staple");
+  await page.getByLabel("Password", { exact: true }).fill("correct horse battery staple");
+  await page.getByLabel("Confirm password").fill("correct horse battery staple");
   await page.getByRole("button", { name: /Create account/ }).last().click();
   await expect(page.getByText(email)).toBeVisible();
   return email;
@@ -75,6 +76,28 @@ test("captured PayPal payment can be refunded", async ({ page }) => {
   await expect(page.getByText("Purchase complete and verified")).toBeVisible({ timeout: 30_000 });
   page.once("dialog", (d) => d.accept());
   await page.getByRole("button", { name: /Refund with PayPal/ }).click();
-  await expect(page.getByText(/^Refunded /)).toBeVisible();
+  await expect(page.getByText("Refunded through PayPal.")).toBeVisible();      // toast
+  await expect(page.getByText(/^Refunded \$\d/)).toBeVisible();                 // payment step
   await expect(page.getByRole("button", { name: /Refund with PayPal/ })).toHaveCount(0);
+});
+
+test("create account is separate from sign in", async ({ page, context }) => {
+  const email = await signUp(page);
+  await context.clearCookies();
+  await page.goto("/login");
+  await page.getByRole("tab", { name: "Create account" }).click();
+  await expect(page.getByLabel("Email")).toHaveValue("");
+  await page.getByLabel("Email").fill(email);
+  await page.getByLabel("Password", { exact: true }).fill("correct horse battery staple");
+  await page.getByLabel("Confirm password").fill("a different password!");
+  await page.getByRole("button", { name: /Create account/ }).last().click();
+  await expect(page.getByText("The two passwords don't match.")).toBeVisible();
+  await page.getByLabel("Confirm password").fill("correct horse battery staple");
+  await page.getByRole("button", { name: /Create account/ }).last().click();
+  await expect(page.getByText("An account with this email already exists")).toBeVisible();
+  await expect(page).toHaveURL(/\/login/);                       // never signed in from Create account
+  await page.getByRole("button", { name: "Sign in instead" }).click();
+  await expect(page.getByRole("tab", { name: "Sign in" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByLabel("Email")).toHaveValue(email);
+  await expect(page.getByLabel("Password", { exact: true })).toHaveValue("");
 });

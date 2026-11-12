@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ApiError, post } from "@/lib/api";
+import { ApiError, api } from "@/lib/api";
 import { ArrowRight, Loader, Lock, ShieldCheck } from "@/components/icons";
 import { LogoMark } from "@/components/Logo";
 
@@ -11,6 +11,8 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [exists, setExists] = useState(false);
+  const [missing, setMissing] = useState(false);
+  const [waking, setWaking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [next, setNext] = useState("/");
@@ -24,18 +26,37 @@ export default function LoginPage() {
     e.preventDefault();
     setError(null);
     setExists(false);
+    setMissing(false);
     if (mode === "register" && password !== confirm) {
       setError("The two passwords don't match.");
       return;
     }
     setBusy(true);
-    try {
-      await post(`/api/v1/auth/${mode === "login" ? "login" : "register"}`, { email, password });
-      window.location.href = next;
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not reach CHECKMATE. Is the backend running?");
-      setExists(mode === "register" && err instanceof ApiError && err.status === 409);
-      setBusy(false);
+    // The free host sleeps when idle; while the backend wakes up, requests fail with 502-504
+    // or hang. Retry for up to two minutes instead of leaving the button spinning.
+    const deadline = Date.now() + 120_000;
+    for (;;) {
+      try {
+        await api(`/api/v1/auth/${mode === "login" ? "login" : "register"}`, {
+          method: "POST", body: JSON.stringify({ email, password }), signal: AbortSignal.timeout(20_000),
+        });
+        window.location.href = next;
+        return;
+      } catch (err) {
+        const waking = !(err instanceof ApiError) || [502, 503, 504].includes(err.status);
+        if (waking && Date.now() < deadline) {
+          setWaking(true);
+          await new Promise((r) => setTimeout(r, 3000));
+          continue;
+        }
+        setWaking(false);
+        setError(waking ? "CHECKMATE didn't wake up in time. Please try again in a minute."
+                 : err instanceof ApiError ? err.message : "Could not reach CHECKMATE.");
+        setExists(mode === "register" && err instanceof ApiError && err.status === 409);
+        setMissing(mode === "login" && err instanceof ApiError && err.status === 401);
+        setBusy(false);
+        return;
+      }
     }
   };
 
@@ -43,6 +64,7 @@ export default function LoginPage() {
     setMode(m);
     setError(null);
     setExists(false);
+    setMissing(false);
     setPassword("");
     setConfirm("");
     if (!keepEmail) setEmail("");
@@ -96,7 +118,20 @@ export default function LoginPage() {
                 Sign in instead
               </button>
             )}
+            {missing && (
+              <span className="mt-1 block text-xs">
+                Demo accounts are cleared when the server restarts, so an account made earlier may be gone.{" "}
+                <button type="button" onClick={() => switchTo("register", true)} className="font-semibold underline underline-offset-2">
+                  Create it again
+                </button>
+              </span>
+            )}
           </div>
+        )}
+        {waking && busy && (
+          <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-300" role="status">
+            CHECKMATE is waking up (free hosting sleeps when idle). This can take about a minute; we'll keep trying.
+          </p>
         )}
         <button className="btn-primary w-full py-2.5" disabled={busy}>
           {busy ? <Loader size={16} /> : <Lock size={16} />} {mode === "login" ? "Sign in" : "Create account"} {!busy && <ArrowRight size={16} />}

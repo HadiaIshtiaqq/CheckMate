@@ -81,6 +81,16 @@ test("captured PayPal payment can be refunded", async ({ page }) => {
   await expect(page.getByRole("button", { name: /Refund with PayPal/ })).toHaveCount(0);
 });
 
+test("signing in to an unknown account offers to create it again", async ({ page }) => {
+  await page.goto("/login");
+  await page.getByLabel("Email").fill(`gone-${Date.now()}@example.com`);
+  await page.getByLabel("Password", { exact: true }).fill("correct horse battery staple");
+  await page.getByRole("button", { name: /Sign in/ }).last().click();
+  await expect(page.getByText("Email or password is incorrect")).toBeVisible();
+  await page.getByRole("button", { name: "Create it again" }).click();
+  await expect(page.getByRole("tab", { name: "Create account" })).toHaveAttribute("aria-selected", "true");
+});
+
 test("create account is separate from sign in", async ({ page, context }) => {
   const email = await signUp(page);
   await context.clearCookies();
